@@ -20,6 +20,16 @@ import type { MastraVector } from '../vector';
 import type { Workflow } from '../workflows';
 import type { LegacyWorkflow } from '../workflows/legacy';
 import { createOnScorerHook } from './hooks';
+import type { AITracingConfig } from '../ai-tracing/types';
+import { MastraAITracing } from '../ai-tracing/base';
+import { DefaultAITracing, registerAITracing, shutdownAITracingRegistry } from '../ai-tracing';
+
+/**
+ * Type guard to check if an object is a MastraAITracing instance
+ */
+function isAITracingInstance(obj: any): obj is MastraAITracing {
+  return obj instanceof MastraAITracing;
+}
 
 export interface Config<
   TAgents extends Record<string, Agent<any>> = Record<string, Agent<any>>,
@@ -43,6 +53,7 @@ export interface Config<
   tts?: TTTS;
   telemetry?: OtelConfig;
   idGenerator?: MastraIdGenerator;
+  aiTracing?: Record<string, AITracingConfig | MastraAITracing>;
   deployer?: MastraDeployer;
   server?: ServerConfig;
   mcpServers?: TMCPServers;
@@ -213,6 +224,19 @@ export class Mastra<
           `If you are using Mastra outside of the mastra server environment, see: https://mastra.ai/en/docs/observability/tracing#tracing-outside-mastra-server-environment`,
         `If you are using a custom instrumentation file or want to disable this warning, set the globalThis.___MASTRA_TELEMETRY___ variable to true in your instrumentation file.`,
       );
+    }
+
+    /*
+    AI Tracing
+    */
+
+    if (config?.aiTracing) {
+      Object.entries(config.aiTracing).forEach(([name, tracingDef]) => {
+        const instance = isAITracingInstance(tracingDef)
+          ? tracingDef // Pre-instantiated custom implementation
+          : new DefaultAITracing(tracingDef); // Config -> DefaultAITracing
+        registerAITracing(name, instance);
+      });
     }
 
     /*
@@ -982,5 +1006,15 @@ do:
       );
       return undefined;
     }
+  }
+
+  /**
+   * Shutdown Mastra and clean up all resources
+   */
+  async shutdown(): Promise<void> {
+    // Shutdown AI tracing registry and all instances
+    await shutdownAITracingRegistry();
+
+    this.#logger?.info('Mastra shutdown completed');
   }
 }

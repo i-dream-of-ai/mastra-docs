@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MastraError } from '../error';
+import { Mastra } from '../mastra';
+import { MastraAITracing } from './base';
 import { DefaultAITracing, DefaultConsoleExporter, SensitiveDataFilter, aiTracingDefaultConfig } from './default';
 import { clearAITracingRegistry, getAITracing, registerAITracing, unregisterAITracing, hasAITracing } from './registry';
-import type { AITracingEvent, AITracingExporter, AITraceContext, LLMGenerationMetadata } from './types';
+import type {
+  AITracingEvent,
+  AITracingExporter,
+  AITraceContext,
+  LLMGenerationMetadata,
+  AITracingConfig,
+  AISpanOptions,
+  AISpan,
+} from './types';
 import { AISpanType, SamplingStrategyType, AITracingEventType } from './types';
 
 // Custom matchers for OpenTelemetry ID validation
@@ -60,6 +70,7 @@ const mockConsole = {
   log: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
+  info: vi.fn(),
 };
 vi.stubGlobal('console', mockConsole);
 
@@ -464,10 +475,9 @@ describe('AI Tracing', () => {
         sampling: { type: SamplingStrategyType.ALWAYS },
       });
 
-      registerAITracing('my-tracing', tracing, true);
+      registerAITracing('my-tracing', tracing);
 
       expect(getAITracing('my-tracing')).toBe(tracing);
-      expect(getAITracing()).toBe(tracing); // Default instance
     });
 
     it('should clear registry', () => {
@@ -482,7 +492,7 @@ describe('AI Tracing', () => {
       expect(getAITracing('test')).toBeUndefined();
     });
 
-    it('should handle multiple instances and default selection', () => {
+    it('should handle multiple instances', () => {
       const tracing1 = new DefaultAITracing({
         serviceName: 'test-1',
         sampling: { type: SamplingStrategyType.ALWAYS },
@@ -492,15 +502,14 @@ describe('AI Tracing', () => {
         sampling: { type: SamplingStrategyType.ALWAYS },
       });
 
-      registerAITracing('first', tracing1, true);
+      registerAITracing('first', tracing1);
       registerAITracing('second', tracing2);
 
       expect(getAITracing('first')).toBe(tracing1);
       expect(getAITracing('second')).toBe(tracing2);
-      expect(getAITracing()).toBe(tracing1); // First one marked as default
     });
 
-    it('should unregister instances correctly', () => {
+    it('should prevent duplicate registration', () => {
       const tracing1 = new DefaultAITracing({
         serviceName: 'test-1',
         sampling: { type: SamplingStrategyType.ALWAYS },
@@ -510,12 +519,24 @@ describe('AI Tracing', () => {
         sampling: { type: SamplingStrategyType.ALWAYS },
       });
 
-      registerAITracing('first', tracing1, true);
-      registerAITracing('second', tracing2);
+      registerAITracing('duplicate', tracing1);
 
-      expect(unregisterAITracing('first')).toBe(true);
-      expect(getAITracing('first')).toBeUndefined();
-      expect(getAITracing()).toBe(tracing2); // Should switch default to remaining instance
+      expect(() => {
+        registerAITracing('duplicate', tracing2);
+      }).toThrow("AI Tracing instance 'duplicate' already registered");
+    });
+
+    it('should unregister instances correctly', () => {
+      const tracing = new DefaultAITracing({
+        serviceName: 'test-1',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      registerAITracing('test', tracing);
+      expect(getAITracing('test')).toBe(tracing);
+
+      expect(unregisterAITracing('test')).toBe(true);
+      expect(getAITracing('test')).toBeUndefined();
     });
 
     it('should return false when unregistering non-existent instance', () => {
@@ -552,6 +573,172 @@ describe('AI Tracing', () => {
       expect(retrieved).toBeDefined();
       expect(retrieved!.getConfig().serviceName).toBe('config-test');
       expect(retrieved!.getConfig().sampling.type).toBe(SamplingStrategyType.RATIO);
+    });
+  });
+
+  describe('Mastra Integration', () => {
+    it('should configure AI tracing with simple config', async () => {
+      const config: AITracingConfig = {
+        serviceName: 'test-service',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+        exporters: [],
+      };
+
+      const mastra = new Mastra({
+        aiTracing: {
+          test: config,
+        },
+      });
+
+      // Verify AI tracing was registered
+      const tracing = getAITracing('test');
+      expect(tracing).toBeDefined();
+      expect(tracing?.getConfig().serviceName).toBe('test-service');
+
+      // Cleanup
+      await mastra.shutdown();
+    });
+
+    it('should configure AI tracing with custom implementation', async () => {
+      class CustomAITracing extends MastraAITracing {
+        protected createSpan<TType extends AISpanType>(options: AISpanOptions<TType>): AISpan<TType> {
+          // Custom implementation - just return a mock span for testing
+          return {
+            id: 'custom-span-id',
+            name: options.name,
+            type: options.type,
+            metadata: options.metadata,
+            parent: options.parent,
+            trace: options.parent?.trace || ({} as any),
+            traceId: 'custom-trace-id',
+            startTime: new Date(),
+            aiTracing: this,
+            end: () => {},
+            error: () => {},
+            update: () => {},
+            createChildSpan: () => ({}) as any,
+            get isRootSpan() {
+              return !options.parent;
+            },
+          } as AISpan<TType>;
+        }
+      }
+
+      const customInstance = new CustomAITracing({
+        serviceName: 'custom-service',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      const mastra = new Mastra({
+        aiTracing: {
+          custom: customInstance,
+        },
+      });
+
+      // Verify custom implementation was registered
+      const tracing = getAITracing('custom');
+      expect(tracing).toBeDefined();
+      expect(tracing).toBe(customInstance);
+      expect(tracing?.getConfig().serviceName).toBe('custom-service');
+
+      // Cleanup
+      await mastra.shutdown();
+    });
+
+    it('should support mixed configuration (config + instance)', async () => {
+      class CustomAITracing extends MastraAITracing {
+        protected createSpan<TType extends AISpanType>(options: AISpanOptions<TType>): AISpan<TType> {
+          return {} as AISpan<TType>; // Mock implementation
+        }
+      }
+
+      const customInstance = new CustomAITracing({
+        serviceName: 'custom-service',
+        sampling: { type: SamplingStrategyType.NEVER },
+      });
+
+      const mastra = new Mastra({
+        aiTracing: {
+          standard: {
+            serviceName: 'standard-service',
+            sampling: { type: SamplingStrategyType.ALWAYS },
+            exporters: [],
+          },
+          custom: customInstance,
+        },
+      });
+
+      // Verify both instances were registered
+      const standardTracing = getAITracing('standard');
+      const customTracing = getAITracing('custom');
+
+      expect(standardTracing).toBeDefined();
+      expect(standardTracing).toBeInstanceOf(DefaultAITracing);
+      expect(standardTracing?.getConfig().serviceName).toBe('standard-service');
+
+      expect(customTracing).toBeDefined();
+      expect(customTracing).toBe(customInstance);
+      expect(customTracing?.getConfig().serviceName).toBe('custom-service');
+
+      // Cleanup
+      await mastra.shutdown();
+    });
+
+    it('should handle registry shutdown during Mastra shutdown', async () => {
+      let shutdownCalled = false;
+
+      class TestAITracing extends MastraAITracing {
+        protected createSpan<TType extends AISpanType>(options: AISpanOptions<TType>): AISpan<TType> {
+          return {} as AISpan<TType>;
+        }
+
+        async shutdown(): Promise<void> {
+          shutdownCalled = true;
+          await super.shutdown();
+        }
+      }
+
+      const testInstance = new TestAITracing({
+        serviceName: 'test-service',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      const mastra = new Mastra({
+        aiTracing: {
+          test: testInstance,
+        },
+      });
+
+      // Verify instance is registered
+      expect(getAITracing('test')).toBe(testInstance);
+
+      // Shutdown should call instance shutdown and clear registry
+      await mastra.shutdown();
+
+      expect(shutdownCalled).toBe(true);
+      expect(getAITracing('test')).toBeUndefined();
+    });
+
+    it('should prevent duplicate registration across multiple Mastra instances', () => {
+      const config: AITracingConfig = {
+        serviceName: 'test-service',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      };
+
+      const mastra1 = new Mastra({
+        aiTracing: {
+          duplicate: config,
+        },
+      });
+
+      // Attempting to register the same name should throw
+      expect(() => {
+        new Mastra({
+          aiTracing: {
+            duplicate: config,
+          },
+        });
+      }).toThrow("AI Tracing instance 'duplicate' already registered");
     });
   });
 
