@@ -140,6 +140,40 @@ describe('AI Tracing', () => {
       expect(toolSpan.traceId).toBe(agentSpan.traceId); // Child spans inherit trace ID
     });
 
+    it('should correctly set parent relationships and isRootSpan property', () => {
+      const tracing = new DefaultAITracing({
+        serviceName: 'test-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+        exporters: [testExporter],
+      });
+
+      // Create root span
+      const rootSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'root-agent', { agentId: 'agent-123' });
+
+      // Root span should have no parent and isRootSpan should be true
+      expect(rootSpan.parent).toBeUndefined();
+      expect(rootSpan.isRootSpan).toBe(true);
+
+      // Create child span
+      const childSpan = rootSpan.createChildSpan(AISpanType.LLM_GENERATION, 'child-llm', {
+        model: 'gpt-4',
+        provider: 'openai',
+      });
+
+      // Child span should have parent and isRootSpan should be false
+      expect(childSpan.parent).toBe(rootSpan);
+      expect(childSpan.isRootSpan).toBe(false);
+
+      // Create grandchild span
+      const grandchildSpan = childSpan.createChildSpan(AISpanType.TOOL_CALL, 'grandchild-tool', {
+        toolId: 'calculator',
+      });
+
+      // Grandchild should have correct parent and isRootSpan should be false
+      expect(grandchildSpan.parent).toBe(childSpan);
+      expect(grandchildSpan.isRootSpan).toBe(false);
+    });
+
     it('should maintain consistent traceId across span hierarchy', () => {
       const tracing = new DefaultAITracing({
         serviceName: 'test-tracing',
@@ -343,6 +377,33 @@ describe('AI Tracing', () => {
 
       // Should default to no sampling for invalid probability
       expect(span.id).toBe('no-op');
+    });
+
+    it('should handle parent relationships correctly in NoOp spans', () => {
+      const tracing = new DefaultAITracing({
+        serviceName: 'test-tracing',
+        sampling: { type: SamplingStrategyType.NEVER }, // Force NoOp spans
+        exporters: [testExporter],
+      });
+
+      // Create root NoOp span
+      const rootSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'no-op-root', { agentId: 'agent-123' });
+
+      // Should be NoOp span with correct properties
+      expect(rootSpan.id).toBe('no-op');
+      expect(rootSpan.parent).toBeUndefined();
+      expect(rootSpan.isRootSpan).toBe(true);
+
+      // Create child NoOp span
+      const childSpan = rootSpan.createChildSpan(AISpanType.TOOL_CALL, 'no-op-child', { toolId: 'tool-456' });
+
+      // Child should also be NoOp with correct parent relationship
+      expect(childSpan.id).toBe('no-op');
+      expect(childSpan.parent).toBe(rootSpan);
+      expect(childSpan.isRootSpan).toBe(false);
+
+      // No events should be emitted for NoOp spans
+      expect(testExporter.events).toHaveLength(0);
     });
   });
 

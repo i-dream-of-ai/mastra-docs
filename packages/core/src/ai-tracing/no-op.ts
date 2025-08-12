@@ -3,14 +3,15 @@
  */
 
 import type { MastraAITracing } from './base';
-import type { AISpanType, AISpan, AISpanOptions, AISpanTypeMap } from './types';
+import type { AISpanType, AISpan, AISpanOptions, AISpanTypeMap, AnyAISpan } from './types';
 
 export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType> {
   public id: string;
   public name: string;
   public type: TType;
   public metadata: AISpanTypeMap[TType];
-  public trace: AISpan<any>;
+  public parent?: AnyAISpan;
+  public trace: AnyAISpan;
   public traceId: string;
   public startTime: Date;
   public endTime?: Date;
@@ -21,6 +22,7 @@ export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType>
     this.name = options.name;
     this.type = options.type;
     this.metadata = options.metadata;
+    this.parent = options.parent;
     this.trace = options.parent ? options.parent.trace : (this as any);
     this.traceId = 'no-op-trace';
     this.startTime = new Date();
@@ -37,4 +39,7 @@ export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType>
     return new NoOpAISpan<TChildType>({ type, name, metadata, parent: this }, this.aiTracing);
   }
   update(): void {}
+  get isRootSpan(): boolean {
+    return !this.parent;
+  }
 }

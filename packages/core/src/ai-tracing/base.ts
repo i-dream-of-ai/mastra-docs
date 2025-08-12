@@ -78,7 +78,6 @@ export abstract class MastraAITracing extends MastraBase {
     };
 
     const span = this.createSpan(options);
-    span.trace = parent ? parent.trace : span;
 
     // Automatically wire up tracing lifecycle
     this.wireSpanLifecycle(span);

@@ -62,7 +62,8 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   public name: string;
   public type: TType;
   public metadata: AISpanTypeMap[TType];
-  public trace: AISpan<any>;
+  public parent?: AnyAISpan;
+  public trace: AnyAISpan;
   public traceId: string;
   public startTime: Date;
   public endTime?: Date;
@@ -73,6 +74,7 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
     this.name = options.name;
     this.type = options.type;
     this.metadata = options.metadata;
+    this.parent = options.parent;
     this.trace = options.parent ? options.parent.trace : (this as any);
     this.startTime = new Date();
     this.aiTracing = aiTracing;
@@ -131,6 +133,10 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   update(metadata: Partial<AISpanTypeMap[TType]>): void {
     this.metadata = { ...this.metadata, ...metadata };
     // Tracing events automatically handled by base class
+  }
+
+  get isRootSpan(): boolean {
+    return !this.parent;
   }
 
   async export(): Promise<string> {

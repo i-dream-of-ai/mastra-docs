@@ -186,6 +186,8 @@ export interface AISpan<TType extends AISpanType> {
   endTime?: Date;
   /** AI-specific metadata - strongly typed based on span type */
   metadata: AISpanTypeMap[TType];
+  /** Parent span reference (undefined for root spans) */
+  parent?: AnyAISpan;
   /** The top-level span - can be any type */
   trace: AnyAISpan;
   /** OpenTelemetry-compatible trace ID (32 hex chars) - present on all spans */
@@ -209,6 +211,9 @@ export interface AISpan<TType extends AISpanType> {
     name: string,
     metadata: AISpanTypeMap[TChildType],
   ): AISpan<TChildType>;
+
+  /** Returns `TRUE` if the span is the root span of a trace */
+  get isRootSpan(): boolean;
 }
 
 /**
@@ -227,7 +232,7 @@ export interface AISpanOptions<TType extends AISpanType> {
   /** Span metadata */
   metadata: AISpanTypeMap[TType];
   /** Parent span */
-  parent?: AISpan<any>;
+  parent?: AnyAISpan;
 }
 
 // ============================================================================
