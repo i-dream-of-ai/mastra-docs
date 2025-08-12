@@ -20,9 +20,9 @@ import type { MastraVector } from '../vector';
 import type { Workflow } from '../workflows';
 import type { LegacyWorkflow } from '../workflows/legacy';
 import { createOnScorerHook } from './hooks';
-import type { AITracingConfig } from '../ai-tracing/types';
+import type { AITracingConfig, TracingSelector } from '../ai-tracing/types';
 import { MastraAITracing } from '../ai-tracing/base';
-import { DefaultAITracing, registerAITracing, shutdownAITracingRegistry } from '../ai-tracing';
+import { DefaultAITracing, registerAITracing, shutdownAITracingRegistry, setAITracingSelector } from '../ai-tracing';
 
 /**
  * Type guard to check if an object is a MastraAITracing instance
@@ -54,6 +54,7 @@ export interface Config<
   telemetry?: OtelConfig;
   idGenerator?: MastraIdGenerator;
   aiTracing?: Record<string, AITracingConfig | MastraAITracing>;
+  aiTracingSelector?: TracingSelector;
   deployer?: MastraDeployer;
   server?: ServerConfig;
   mcpServers?: TMCPServers;
@@ -231,12 +232,22 @@ export class Mastra<
     */
 
     if (config?.aiTracing) {
-      Object.entries(config.aiTracing).forEach(([name, tracingDef]) => {
+      const entries = Object.entries(config.aiTracing);
+
+      entries.forEach(([name, tracingDef], index) => {
         const instance = isAITracingInstance(tracingDef)
           ? tracingDef // Pre-instantiated custom implementation
           : new DefaultAITracing(tracingDef); // Config -> DefaultAITracing
-        registerAITracing(name, instance);
+
+        // First registered instance becomes default
+        const isDefault = index === 0;
+        registerAITracing(name, instance, isDefault);
       });
+
+      // Set selector function if provided
+      if (config.aiTracingSelector) {
+        setAITracingSelector(config.aiTracingSelector);
+      }
     }
 
     /*

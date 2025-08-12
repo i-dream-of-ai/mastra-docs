@@ -4,7 +4,16 @@ import { MastraError } from '../error';
 import { Mastra } from '../mastra';
 import { MastraAITracing } from './base';
 import { DefaultAITracing, DefaultConsoleExporter, SensitiveDataFilter, aiTracingDefaultConfig } from './default';
-import { clearAITracingRegistry, getAITracing, registerAITracing, unregisterAITracing, hasAITracing } from './registry';
+import {
+  clearAITracingRegistry,
+  getAITracing,
+  registerAITracing,
+  unregisterAITracing,
+  hasAITracing,
+  getDefaultAITracing,
+  setAITracingSelector,
+  getSelectedAITracing,
+} from './registry';
 import type {
   AITracingEvent,
   AITracingExporter,
@@ -13,6 +22,8 @@ import type {
   AITracingConfig,
   AISpanOptions,
   AISpan,
+  TracingSelector,
+  AITracingContext,
 } from './types';
 import { AISpanType, SamplingStrategyType, AITracingEventType } from './types';
 
@@ -574,6 +585,79 @@ describe('AI Tracing', () => {
       expect(retrieved!.getConfig().serviceName).toBe('config-test');
       expect(retrieved!.getConfig().sampling.type).toBe(SamplingStrategyType.RATIO);
     });
+
+    it('should use selector function when provided', () => {
+      const tracing1 = new DefaultAITracing({
+        serviceName: 'console-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+      const tracing2 = new DefaultAITracing({
+        serviceName: 'langfuse-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      registerAITracing('console', tracing1);
+      registerAITracing('langfuse', tracing2);
+
+      const selector: TracingSelector = (context, availableTracers) => {
+        // For testing, we'll simulate routing based on runtime context
+        if (context.runtimeContext?.environment === 'production') return 'langfuse';
+        if (context.runtimeContext?.environment === 'development') return 'console';
+        return undefined; // Fall back to default
+      };
+
+      setAITracingSelector(selector);
+
+      const prodContext: AITracingContext = {
+        runtimeContext: { environment: 'production' },
+      };
+
+      const devContext: AITracingContext = {
+        runtimeContext: { environment: 'development' },
+      };
+
+      expect(getSelectedAITracing(prodContext)).toBe(tracing2); // langfuse
+      expect(getSelectedAITracing(devContext)).toBe(tracing1); // console
+    });
+
+    it('should fall back to default when selector returns invalid name', () => {
+      const tracing1 = new DefaultAITracing({
+        serviceName: 'default-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      registerAITracing('default', tracing1, true); // Explicitly set as default
+
+      const selector: TracingSelector = (_context, _availableTracers) => 'non-existent';
+      setAITracingSelector(selector);
+
+      const context: AITracingContext = {
+        runtimeContext: undefined,
+      };
+
+      expect(getSelectedAITracing(context)).toBe(tracing1); // Falls back to default
+    });
+
+    it('should handle default tracing behavior', () => {
+      const tracing1 = new DefaultAITracing({
+        serviceName: 'first-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+      const tracing2 = new DefaultAITracing({
+        serviceName: 'second-tracing',
+        sampling: { type: SamplingStrategyType.ALWAYS },
+      });
+
+      // First registered becomes default automatically
+      registerAITracing('first', tracing1);
+      registerAITracing('second', tracing2);
+
+      expect(getDefaultAITracing()).toBe(tracing1);
+
+      // Explicitly set second as default
+      registerAITracing('third', tracing2, true);
+      expect(getDefaultAITracing()).toBe(tracing2);
+    });
   });
 
   describe('Mastra Integration', () => {
@@ -590,10 +674,11 @@ describe('AI Tracing', () => {
         },
       });
 
-      // Verify AI tracing was registered
+      // Verify AI tracing was registered and set as default
       const tracing = getAITracing('test');
       expect(tracing).toBeDefined();
       expect(tracing?.getConfig().serviceName).toBe('test-service');
+      expect(getDefaultAITracing()).toBe(tracing); // First one becomes default
 
       // Cleanup
       await mastra.shutdown();
@@ -739,6 +824,56 @@ describe('AI Tracing', () => {
           },
         });
       }).toThrow("AI Tracing instance 'duplicate' already registered");
+    });
+
+    it('should support selector function configuration', async () => {
+      const selector: TracingSelector = (context, availableTracers) => {
+        if (context.runtimeContext?.service === 'agent') return 'langfuse';
+        if (context.runtimeContext?.service === 'workflow') return 'datadog';
+        return undefined; // Use default
+      };
+
+      const mastra = new Mastra({
+        aiTracing: {
+          console: {
+            serviceName: 'console-service',
+            sampling: { type: SamplingStrategyType.ALWAYS },
+            exporters: [],
+          },
+          langfuse: {
+            serviceName: 'langfuse-service',
+            sampling: { type: SamplingStrategyType.ALWAYS },
+            exporters: [],
+          },
+          datadog: {
+            serviceName: 'datadog-service',
+            sampling: { type: SamplingStrategyType.ALWAYS },
+            exporters: [],
+          },
+        },
+        aiTracingSelector: selector,
+      });
+
+      // Test selector functionality
+      const agentContext: AITracingContext = {
+        runtimeContext: { service: 'agent' },
+      };
+
+      const workflowContext: AITracingContext = {
+        runtimeContext: { service: 'workflow' },
+      };
+
+      const genericContext: AITracingContext = {
+        runtimeContext: undefined,
+      };
+
+      // Verify selector routes correctly
+      expect(getSelectedAITracing(agentContext)).toBe(getAITracing('langfuse'));
+      expect(getSelectedAITracing(workflowContext)).toBe(getAITracing('datadog'));
+      expect(getSelectedAITracing(genericContext)).toBe(getDefaultAITracing()); // Falls back to default (console)
+
+      // Cleanup
+      await mastra.shutdown();
     });
   });
 

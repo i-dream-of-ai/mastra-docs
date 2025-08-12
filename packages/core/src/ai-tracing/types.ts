@@ -326,3 +326,24 @@ export interface AISpanProcessor {
   /** Shutdown processor */
   shutdown(): Promise<void>;
 }
+
+// ============================================================================
+// AI Tracing Selection Types
+// ============================================================================
+
+/**
+ * Context provided to tracing selector functions
+ */
+export interface AITracingContext {
+  /** Runtime context */
+  runtimeContext?: RuntimeContext;
+}
+
+/**
+ * Function to select which AI tracing instance to use for a given span
+ * Returns the name of the tracing instance, or undefined to use default
+ */
+export type TracingSelector = (
+  context: AITracingContext,
+  availableTracers: ReadonlyMap<string, MastraAITracing>,
+) => string | undefined;
