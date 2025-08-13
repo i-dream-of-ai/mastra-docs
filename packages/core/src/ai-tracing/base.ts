@@ -4,10 +4,11 @@
 
 import { MastraBase } from '../base';
 import { RegisteredLogger } from '../logger/constants';
+import type { IMastraLogger } from '../logger';
 import type { RuntimeContext } from '../runtime-context';
 import { NoOpAISpan } from './no-op';
 import type {
-  AITracingConfig,
+  AITracingInstanceConfig,
   AISpan,
   AISpanOptions,
   AISpanType,
@@ -29,14 +30,32 @@ import { SamplingStrategyType, AITracingEventType } from './types';
  *
  */
 export abstract class MastraAITracing extends MastraBase {
-  protected config: AITracingConfig;
+  protected config: Required<AITracingInstanceConfig>;
 
-  constructor(config: AITracingConfig) {
-    super({ component: RegisteredLogger.AI_TELEMETRY, name: config.serviceName });
+  constructor(config: AITracingInstanceConfig) {
+    super({ component: RegisteredLogger.AI_TRACING, name: config.serviceName });
 
-    this.config = config;
+    // Apply defaults for optional fields
+    this.config = {
+      serviceName: config.serviceName,
+      instanceName: config.instanceName,
+      sampling: config.sampling ?? { type: SamplingStrategyType.ALWAYS },
+      exporters: config.exporters ?? [],
+      processors: config.processors ?? [],
+    };
 
-    this.logger.debug(`AI Tracing initialized [service=${config.serviceName}] [sampling=${this.config.sampling.type}]`);
+    console.log(`[DEBUG] AI Tracing constructor called for service: ${config.serviceName}`);
+  }
+
+  /**
+   * Override setLogger to add AI tracing specific initialization log
+   */
+  __setLogger(logger: IMastraLogger) {
+    super.__setLogger(logger);
+    // Log AI tracing initialization details after logger is properly set
+    this.logger.debug(
+      `AI Tracing initialized [service=${this.config.serviceName}] [instance=${this.config.instanceName}] [sampling=${this.config.sampling.type}]`,
+    );
   }
 
   // ============================================================================
@@ -113,7 +132,7 @@ export abstract class MastraAITracing extends MastraBase {
   /**
    * Get current configuration
    */
-  getConfig(): Readonly<AITracingConfig> {
+  getConfig(): Readonly<Required<AITracingInstanceConfig>> {
     return { ...this.config };
   }
 

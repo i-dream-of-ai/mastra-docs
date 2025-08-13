@@ -11,7 +11,7 @@ import type {
   AISpan,
   AISpanOptions,
   AITracingExporter,
-  AITracingConfig,
+  AITracingInstanceConfig,
   AITracingEvent,
   AISpanTypeMap,
   AISpanProcessor,
@@ -318,8 +318,9 @@ export class DefaultConsoleExporter implements AITracingExporter {
 // Default Configuration (defined after classes to avoid circular dependencies)
 // ============================================================================
 
-export const aiTracingDefaultConfig: AITracingConfig = {
+export const aiTracingDefaultConfig: AITracingInstanceConfig = {
   serviceName: 'mastra-ai-service',
+  instanceName: 'default',
   sampling: { type: SamplingStrategyType.ALWAYS },
   exporters: [new DefaultConsoleExporter()], // Uses its own fallback logger
   processors: [new SensitiveDataFilter()],
@@ -330,7 +331,7 @@ export const aiTracingDefaultConfig: AITracingConfig = {
 // ============================================================================
 
 export class DefaultAITracing extends MastraAITracing {
-  constructor(config: AITracingConfig = aiTracingDefaultConfig) {
+  constructor(config: AITracingInstanceConfig = aiTracingDefaultConfig) {
     super(config);
   }
 

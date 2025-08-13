@@ -20,6 +20,7 @@ import type {
   AITraceContext,
   LLMGenerationMetadata,
   AITracingConfig,
+  AITracingInstanceConfig,
   AISpanOptions,
   AISpan,
   TracingSelector,
@@ -662,15 +663,16 @@ describe('AI Tracing', () => {
 
   describe('Mastra Integration', () => {
     it('should configure AI tracing with simple config', async () => {
-      const config: AITracingConfig = {
+      const config: AITracingInstanceConfig = {
         serviceName: 'test-service',
-        sampling: { type: SamplingStrategyType.ALWAYS },
         exporters: [],
       };
 
       const mastra = new Mastra({
         aiTracing: {
-          test: config,
+          instances: {
+            test: config,
+          },
         },
       });
 
@@ -678,7 +680,28 @@ describe('AI Tracing', () => {
       const tracing = getAITracing('test');
       expect(tracing).toBeDefined();
       expect(tracing?.getConfig().serviceName).toBe('test-service');
+      expect(tracing?.getConfig().sampling?.type).toBe(SamplingStrategyType.ALWAYS); // Should default to ALWAYS
       expect(getDefaultAITracing()).toBe(tracing); // First one becomes default
+
+      // Cleanup
+      await mastra.shutdown();
+    });
+
+    it('should use ALWAYS sampling by default when sampling is not specified', async () => {
+      const config: AITracingInstanceConfig = {
+        serviceName: 'default-sampling-test',
+      };
+
+      const mastra = new Mastra({
+        aiTracing: {
+          instances: {
+            test: config,
+          },
+        },
+      });
+
+      const tracing = getAITracing('test');
+      expect(tracing?.getConfig().sampling?.type).toBe(SamplingStrategyType.ALWAYS);
 
       // Cleanup
       await mastra.shutdown();
@@ -716,7 +739,9 @@ describe('AI Tracing', () => {
 
       const mastra = new Mastra({
         aiTracing: {
-          custom: customInstance,
+          instances: {
+            custom: customInstance,
+          },
         },
       });
 
@@ -744,12 +769,13 @@ describe('AI Tracing', () => {
 
       const mastra = new Mastra({
         aiTracing: {
-          standard: {
-            serviceName: 'standard-service',
-            sampling: { type: SamplingStrategyType.ALWAYS },
-            exporters: [],
+          instances: {
+            standard: {
+              serviceName: 'standard-service',
+              exporters: [],
+            },
+            custom: customInstance,
           },
-          custom: customInstance,
         },
       });
 
@@ -790,7 +816,9 @@ describe('AI Tracing', () => {
 
       const mastra = new Mastra({
         aiTracing: {
-          test: testInstance,
+          instances: {
+            test: testInstance,
+          },
         },
       });
 
@@ -805,14 +833,16 @@ describe('AI Tracing', () => {
     });
 
     it('should prevent duplicate registration across multiple Mastra instances', () => {
-      const config: AITracingConfig = {
+      const config: AITracingInstanceConfig = {
         serviceName: 'test-service',
         sampling: { type: SamplingStrategyType.ALWAYS },
       };
 
       const mastra1 = new Mastra({
         aiTracing: {
-          duplicate: config,
+          instances: {
+            duplicate: config,
+          },
         },
       });
 
@@ -820,7 +850,9 @@ describe('AI Tracing', () => {
       expect(() => {
         new Mastra({
           aiTracing: {
-            duplicate: config,
+            instances: {
+              duplicate: config,
+            },
           },
         });
       }).toThrow("AI Tracing instance 'duplicate' already registered");
@@ -835,23 +867,22 @@ describe('AI Tracing', () => {
 
       const mastra = new Mastra({
         aiTracing: {
-          console: {
-            serviceName: 'console-service',
-            sampling: { type: SamplingStrategyType.ALWAYS },
-            exporters: [],
+          instances: {
+            console: {
+              serviceName: 'console-service',
+              exporters: [],
+            },
+            langfuse: {
+              serviceName: 'langfuse-service',
+              exporters: [],
+            },
+            datadog: {
+              serviceName: 'datadog-service',
+              exporters: [],
+            },
           },
-          langfuse: {
-            serviceName: 'langfuse-service',
-            sampling: { type: SamplingStrategyType.ALWAYS },
-            exporters: [],
-          },
-          datadog: {
-            serviceName: 'datadog-service',
-            sampling: { type: SamplingStrategyType.ALWAYS },
-            exporters: [],
-          },
+          selector: selector,
         },
-        aiTracingSelector: selector,
       });
 
       // Test selector functionality

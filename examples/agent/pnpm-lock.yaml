@@ -13,6 +13,7 @@ overrides:
   '@mastra/mcp': link:../../packages/mcp
   '@mastra/libsql': link:../../stores/libsql
   '@mastra/evals': link:../../packages/evals
+  '@mastra/observability-langfuse': link:../../observability/langfuse
   mastra: link:../../packages/cli
 
 importers:
@@ -46,6 +47,9 @@ importers:
       '@mastra/memory':
         specifier: link:../../packages/memory
         version: link:../../packages/memory
+      '@mastra/observability-langfuse':
+        specifier: link:../../observability/langfuse
+        version: link:../../observability/langfuse
       '@mastra/voice-openai':
         specifier: link:../../voice/openai
         version: link:../../voice/openai

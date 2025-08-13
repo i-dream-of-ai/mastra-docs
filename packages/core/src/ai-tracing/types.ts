@@ -267,17 +267,29 @@ export type SamplingStrategy =
   | { type: SamplingStrategyType.CUSTOM; sampler: (traceContext: AITraceContext) => boolean };
 
 /**
- * Complete AI Tracing configuration that combines all options
+ * Configuration for a single AI tracing instance
  */
-export interface AITracingConfig {
+export interface AITracingInstanceConfig {
   /** Service name for tracing */
   serviceName: string;
-  /** Sampling strategy - controls whether tracing is collected */
-  sampling: SamplingStrategy;
+  /** Instance name from the registry */
+  instanceName: string;
+  /** Sampling strategy - controls whether tracing is collected (defaults to ALWAYS) */
+  sampling?: SamplingStrategy;
   /** Custom exporters */
   exporters?: AITracingExporter[];
   /** Custom processors */
   processors?: AISpanProcessor[];
+}
+
+/**
+ * Complete AI Tracing configuration
+ */
+export interface AITracingConfig {
+  /** Map of tracing instance names to their configurations or pre-instantiated instances */
+  instances: Record<string, AITracingInstanceConfig | MastraAITracing>;
+  /** Optional selector function to choose which tracing instance to use */
+  selector?: TracingSelector;
 }
 
 // ============================================================================

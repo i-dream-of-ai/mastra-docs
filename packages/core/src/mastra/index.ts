@@ -20,14 +20,20 @@ import type { MastraVector } from '../vector';
 import type { Workflow } from '../workflows';
 import type { LegacyWorkflow } from '../workflows/legacy';
 import { createOnScorerHook } from './hooks';
-import type { AITracingConfig, TracingSelector } from '../ai-tracing/types';
+import type { AITracingConfig, AITracingInstanceConfig } from '../ai-tracing/types';
 import { MastraAITracing } from '../ai-tracing/base';
-import { DefaultAITracing, registerAITracing, shutdownAITracingRegistry, setAITracingSelector } from '../ai-tracing';
+import {
+  DefaultAITracing,
+  registerAITracing,
+  shutdownAITracingRegistry,
+  setAITracingSelector,
+  getAllAITracing,
+} from '../ai-tracing';
 
 /**
  * Type guard to check if an object is a MastraAITracing instance
  */
-function isAITracingInstance(obj: any): obj is MastraAITracing {
+function isAITracingInstance(obj: AITracingInstanceConfig | MastraAITracing): obj is MastraAITracing {
   return obj instanceof MastraAITracing;
 }
 
@@ -52,9 +58,8 @@ export interface Config<
   workflows?: TWorkflows;
   tts?: TTTS;
   telemetry?: OtelConfig;
+  aiTracing?: AITracingConfig;
   idGenerator?: MastraIdGenerator;
-  aiTracing?: Record<string, AITracingConfig | MastraAITracing>;
-  aiTracingSelector?: TracingSelector;
   deployer?: MastraDeployer;
   server?: ServerConfig;
   mcpServers?: TMCPServers;
@@ -232,12 +237,12 @@ export class Mastra<
     */
 
     if (config?.aiTracing) {
-      const entries = Object.entries(config.aiTracing);
+      const entries = Object.entries(config.aiTracing.instances);
 
       entries.forEach(([name, tracingDef], index) => {
         const instance = isAITracingInstance(tracingDef)
           ? tracingDef // Pre-instantiated custom implementation
-          : new DefaultAITracing(tracingDef); // Config -> DefaultAITracing
+          : new DefaultAITracing({ ...tracingDef, instanceName: name }); // Config -> DefaultAITracing with instance name
 
         // First registered instance becomes default
         const isDefault = index === 0;
@@ -245,8 +250,8 @@ export class Mastra<
       });
 
       // Set selector function if provided
-      if (config.aiTracingSelector) {
-        setAITracingSelector(config.aiTracingSelector);
+      if (config.aiTracing.selector) {
+        setAITracingSelector(config.aiTracing.selector);
       }
     }
 
@@ -688,6 +693,12 @@ do:
         this.#mcpServers?.[key]?.__setLogger(this.#logger);
       });
     }
+
+    // Set logger for AI tracing instances
+    const allTracingInstances = getAllAITracing();
+    allTracingInstances.forEach(instance => {
+      instance.__setLogger(this.#logger);
+    });
   }
 
   public setTelemetry(telemetry: OtelConfig) {
