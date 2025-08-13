@@ -39,20 +39,6 @@ export enum AISpanType {
  * Base metadata that all spans can have
  */
 export interface AIBaseMetadata {
-  /** Input passed at the start of the span */
-  input?: any;
-  /** Output generated at the end of the span */
-  output?: any;
-
-  /** Error information if span failed */
-  error?: {
-    message: string;
-    id?: string;
-    domain?: string;
-    category?: string;
-    details?: Record<string, any>;
-  };
-
   /** Custom tags for categorization */
   tags?: string[];
   /** User-defined attributes */
@@ -195,22 +181,48 @@ export interface AISpan<TType extends AISpanType> {
   /** Pointer to the AITracing instance */
   aiTracing: MastraAITracing;
 
+  /** Input passed at the start of the span */
+  input?: any;
+  /** Output generated at the end of the span */
+  output?: any;
+
+  /** Error information if span failed */
+  errorInfo?: {
+    message: string;
+    id?: string;
+    domain?: string;
+    category?: string;
+    details?: Record<string, any>;
+  };
+
   // Methods for span lifecycle
   /** End the span */
-  end(metadata?: Partial<AISpanTypeMap[TType]>): void;
+  end(options?: {
+    output?: any;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+  }): void;
 
   /** Record an error for the span, optionally end the span as well */
-  error(error: MastraError | Error, endSpan?: boolean): void;
+  error(options: {
+    error: MastraError | Error;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+    endSpan?: boolean;
+  }): void;
 
   /** Update span metadata */
-  update(metadata: Partial<AISpanTypeMap[TType]>): void;
+  update(options?: {
+    input?: any;
+    output?: any;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+  }): void;
 
   /** Create child span - can be any span type independent of parent */
-  createChildSpan<TChildType extends AISpanType>(
-    type: TChildType,
-    name: string,
-    metadata: AISpanTypeMap[TChildType],
-  ): AISpan<TChildType>;
+  createChildSpan<TChildType extends AISpanType>(options: {
+    type: TChildType;
+    name: string;
+    input?: any;
+    metadata?: AISpanTypeMap[TChildType];
+  }): AISpan<TChildType>;
 
   /** Returns `TRUE` if the span is the root span of a trace */
   get isRootSpan(): boolean;
@@ -229,8 +241,10 @@ export interface AISpanOptions<TType extends AISpanType> {
   name: string;
   /** Span type */
   type: TType;
+  /** Input data */
+  input?: any;
   /** Span metadata */
-  metadata: AISpanTypeMap[TType];
+  metadata?: AISpanTypeMap[TType];
   /** Parent span */
   parent?: AnyAISpan;
 }

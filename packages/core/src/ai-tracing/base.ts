@@ -43,8 +43,6 @@ export abstract class MastraAITracing extends MastraBase {
       exporters: config.exporters ?? [],
       processors: config.processors ?? [],
     };
-
-    console.log(`[DEBUG] AI Tracing constructor called for service: ${config.serviceName}`);
   }
 
   /**
@@ -54,7 +52,7 @@ export abstract class MastraAITracing extends MastraBase {
     super.__setLogger(logger);
     // Log AI tracing initialization details after logger is properly set
     this.logger.debug(
-      `AI Tracing initialized [service=${this.config.serviceName}] [instance=${this.config.instanceName}] [sampling=${this.config.sampling.type}]`,
+      `[AI Tracing] Initialized [service=${this.config.serviceName}] [instance=${this.config.instanceName}] [sampling=${this.config.sampling.type}]`,
     );
   }
 
@@ -77,26 +75,32 @@ export abstract class MastraAITracing extends MastraBase {
   /**
    * Start a new span of a specific AISpanType
    */
-  startSpan<TType extends AISpanType>(
-    type: TType,
-    name: string,
-    metadata: AISpanTypeMap[TType],
-    parent?: AnyAISpan,
-    runtimeContext?: RuntimeContext,
-    attributes?: Record<string, any>,
-  ): AISpan<TType> {
-    if (!this.shouldSample({ runtimeContext, attributes })) {
-      return new NoOpAISpan<TType>({ type, name, metadata, parent }, this);
+  startSpan<TType extends AISpanType>(options: {
+    type: TType;
+    name: string;
+    input?: any;
+    metadata?: AISpanTypeMap[TType];
+    parent?: AnyAISpan;
+    startOptions?: {
+      runtimeContext?: RuntimeContext;
+    };
+  }): AISpan<TType> {
+    const { type, name, input, metadata, parent, startOptions } = options;
+    const { runtimeContext } = startOptions || {};
+
+    if (!this.shouldSample({ runtimeContext })) {
+      return new NoOpAISpan<TType>({ type, name, input, metadata, parent }, this);
     }
 
-    const options: AISpanOptions<TType> = {
+    const spanOptions: AISpanOptions<TType> = {
       type,
       name,
+      input,
       metadata,
       parent,
     };
 
-    const span = this.createSpan(options);
+    const span = this.createSpan(spanOptions);
 
     // Automatically wire up tracing lifecycle
     this.wireSpanLifecycle(span);
@@ -175,13 +179,20 @@ export abstract class MastraAITracing extends MastraBase {
     const originalUpdate = span.update.bind(span);
 
     // Wrap methods to automatically emit tracing events
-    span.end = (metadata?: Partial<AISpanTypeMap[TType]>) => {
-      originalEnd(metadata);
+    span.end = (options?: {
+      output?: any;
+      metadata?: Partial<AISpanTypeMap[TType]>;
+    }) => {
+      originalEnd(options);
       this.emitSpanEnded(span);
     };
 
-    span.update = (metadata: Partial<AISpanTypeMap[TType]>) => {
-      originalUpdate(metadata);
+    span.update = (options?: {
+      input?: any;
+      output?: any;
+      metadata?: Partial<AISpanTypeMap[TType]>;
+    }) => {
+      originalUpdate(options);
       this.emitSpanUpdated(span);
     };
   }
@@ -231,7 +242,7 @@ export abstract class MastraAITracing extends MastraBase {
       try {
         processedSpan = processor.process(processedSpan);
       } catch (error) {
-        this.logger.error(`Processor error [name=${processor.name}]`, error);
+        this.logger.error(`[AI Tracing] Processor error [name=${processor.name}]`, error);
         // Continue with other processors
       }
     }
@@ -251,7 +262,7 @@ export abstract class MastraAITracing extends MastraBase {
     const processedSpan = this.processSpan(span);
     if (processedSpan) {
       this.exportEvent({ type: AITracingEventType.SPAN_STARTED, span: processedSpan }).catch(error => {
-        this.logger.error('Failed to export span_started event', error);
+        this.logger.error('[AI Tracing] Failed to export span_started event', error);
       });
     }
   }
@@ -264,7 +275,7 @@ export abstract class MastraAITracing extends MastraBase {
     const processedSpan = this.processSpan(span);
     if (processedSpan) {
       this.exportEvent({ type: AITracingEventType.SPAN_ENDED, span: processedSpan }).catch(error => {
-        this.logger.error('Failed to export span_ended event', error);
+        this.logger.error('[AI Tracing] Failed to export span_ended event', error);
       });
     }
   }
@@ -277,7 +288,7 @@ export abstract class MastraAITracing extends MastraBase {
     const processedSpan = this.processSpan(span);
     if (processedSpan) {
       this.exportEvent({ type: AITracingEventType.SPAN_UPDATED, span: processedSpan }).catch(error => {
-        this.logger.error('Failed to export span_updated event', error);
+        this.logger.error('[AI Tracing] Failed to export span_updated event', error);
       });
     }
   }
@@ -290,10 +301,10 @@ export abstract class MastraAITracing extends MastraBase {
       try {
         if (exporter.exportEvent) {
           await exporter.exportEvent(event);
-          this.logger.debug(`Event exported [exporter=${exporter.name}] [type=${event.type}]`);
+          this.logger.debug(`[AI Tracing] Event exported [exporter=${exporter.name}] [type=${event.type}]`);
         }
       } catch (error) {
-        this.logger.error(`Export error [exporter=${exporter.name}]`, error);
+        this.logger.error(`[AI Tracing] Export error [exporter=${exporter.name}]`, error);
         // Don't rethrow - continue with other exporters
       }
     });
@@ -309,25 +320,25 @@ export abstract class MastraAITracing extends MastraBase {
    * Initialize AI tracing (called by Mastra during component registration)
    */
   async init(): Promise<void> {
-    this.logger.debug(`AI Tracing initialization started [name=${this.name}]`);
+    this.logger.debug(`[AI Tracing] Initialization started [name=${this.name}]`);
 
     // Any initialization logic for the AI tracing system
     // This could include setting up queues, starting background processes, etc.
 
-    this.logger.info(`AI Tracing initialized successfully [name=${this.name}]`);
+    this.logger.info(`[AI Tracing] Initialized successfully [name=${this.name}]`);
   }
 
   /**
    * Shutdown AI tracing and clean up resources
    */
   async shutdown(): Promise<void> {
-    this.logger.debug(`AI Tracing shutdown started [name=${this.name}]`);
+    this.logger.debug(`[AI Tracing] Shutdown started [name=${this.name}]`);
 
     // Shutdown all components
     const shutdownPromises = [...this.exporters.map(e => e.shutdown()), ...this.processors.map(p => p.shutdown())];
 
     await Promise.allSettled(shutdownPromises);
 
-    this.logger.info(`AI Tracing shutdown completed [name=${this.name}]`);
+    this.logger.info(`[AI Tracing] Shutdown completed [name=${this.name}]`);
   }
 }

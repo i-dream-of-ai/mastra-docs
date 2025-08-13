@@ -7,6 +7,7 @@
  */
 
 import { Langfuse } from 'langfuse';
+import type { LangfuseTraceClient, LangfuseSpanClient, LangfuseGenerationClient } from 'langfuse';
 import type { AITracingExporter, AITracingEvent, AnyAISpan, LLMGenerationMetadata } from '@mastra/core/ai-tracing';
 import { AISpanType } from '@mastra/core/ai-tracing';
 
@@ -17,6 +18,8 @@ export interface LangfuseExporterConfig {
   secretKey: string;
   /** Langfuse host URL (defaults to cloud) */
   baseUrl?: string;
+  /** Enable realtime mode - flushes after each event for immediate visibility */
+  realtime?: boolean;
   /** Additional options for Langfuse client */
   options?: {
     debug?: boolean;
@@ -29,16 +32,21 @@ export interface LangfuseExporterConfig {
 export class LangfuseExporter implements AITracingExporter {
   name = 'langfuse';
   private client: Langfuse;
-  private traceMap = new Map<string, any>(); // Maps span.trace.id to Langfuse trace
-  private spanMap = new Map<string, any>(); // Maps span.id to Langfuse span/generation
+  private realtime: boolean;
+  private traceMap = new Map<string, {
+    trace: LangfuseTraceClient;  // Langfuse trace object
+    spans: Map<string, LangfuseSpanClient | LangfuseGenerationClient>;  // Maps span.id to Langfuse span/generation
+  }>();
 
   constructor(config: LangfuseExporterConfig) {
+    this.realtime = config.realtime ?? false;
     this.client = new Langfuse({
       publicKey: config.publicKey,
       secretKey: config.secretKey,
       baseUrl: config.baseUrl,
       ...config.options,
     });
+    console.log("created langfuse client: %s", this.client);
   }
 
   async exportEvent(event: AITracingEvent): Promise<void> {
@@ -53,6 +61,11 @@ export class LangfuseExporter implements AITracingExporter {
         await this.handleSpanEnded(event.span);
         break;
     }
+
+    // Flush immediately in realtime mode for instant visibility
+    if (this.realtime) {
+      await this.client.flushAsync();
+    }
   }
 
   private async handleSpanStarted(span: AnyAISpan): Promise<void> {
@@ -63,9 +76,13 @@ export class LangfuseExporter implements AITracingExporter {
         userId: span.metadata.attributes?.userId,
         sessionId: span.metadata.attributes?.sessionId,
         tags: span.metadata.tags,
+        input: span.input,
         metadata: this.sanitizeMetadata(span.metadata.attributes),
       });
-      this.traceMap.set(span.trace.id, trace);
+      this.traceMap.set(span.trace.id, {
+        trace,
+        spans: new Map(),
+      });
     }
 
     // Create appropriate Langfuse object based on span type
@@ -77,7 +94,10 @@ export class LangfuseExporter implements AITracingExporter {
   }
 
   private async handleSpanUpdated(span: AnyAISpan): Promise<void> {
-    const langfuseObject = this.spanMap.get(span.id);
+    const traceData = this.traceMap.get(span.trace.id);
+    if (!traceData) return;
+
+    const langfuseObject = traceData.spans.get(span.id);
     if (!langfuseObject) return;
 
     // Update the Langfuse object with new metadata
@@ -86,28 +106,31 @@ export class LangfuseExporter implements AITracingExporter {
   }
 
   private async handleSpanEnded(span: AnyAISpan): Promise<void> {
-    const langfuseObject = this.spanMap.get(span.id);
+    const traceData = this.traceMap.get(span.trace.id);
+    if (!traceData) return;
+
+    const langfuseObject = traceData.spans.get(span.id);
     if (!langfuseObject) return;
 
     // End the Langfuse object
     const endData = this.buildEndData(span);
     langfuseObject.end(endData);
 
-    // Clean up references
-    this.spanMap.delete(span.id);
-
-    // If this was a root span, clean up the trace reference
-    if (span.id == span.trace.id) {
+    if (span.isRootSpan) {
+      traceData.trace.update({output: span.output})
       this.traceMap.delete(span.trace.id);
     }
   }
 
   private async createLangfuseGeneration(span: AnyAISpan): Promise<void> {
-    const trace = this.traceMap.get(span.trace.id);
-    if (!trace) return;
+    const traceData = this.traceMap.get(span.trace.id);
+    if (!traceData) return;
 
     const metadata = span.metadata as LLMGenerationMetadata;
-    const parent = span.parent ? this.spanMap.get(span.parent.id) : trace;
+
+    const parent = span.parent && traceData.spans.has(span.parent.id)
+      ? traceData.spans.get(span.parent.id)!
+      : traceData.trace;
 
     const generation = parent.generation({
       id: span.id,
@@ -123,8 +146,8 @@ export class LangfuseExporter implements AITracingExporter {
             stop: metadata.parameters.stop,
           }
         : undefined,
-      input: metadata.input,
-      output: metadata.output,
+      input: span.input,
+      output: span.output,
       usage: metadata.usage
         ? {
             promptTokens: metadata.usage.promptTokens,
@@ -141,20 +164,22 @@ export class LangfuseExporter implements AITracingExporter {
       tags: metadata.tags,
     });
 
-    this.spanMap.set(span.id, generation);
+    traceData.spans.set(span.id, generation);
   }
 
   private async createLangfuseSpan(span: AnyAISpan): Promise<void> {
-    const trace = this.traceMap.get(span.trace.id);
-    if (!trace) return;
+    const traceData = this.traceMap.get(span.trace.id);
+    if (!traceData) return;
 
-    const parent = span.parent ? this.spanMap.get(span.parent.id) : trace;
+    const parent = span.parent && traceData.spans.has(span.parent.id)
+      ? traceData.spans.get(span.parent.id)!
+      : traceData.trace;
 
     const langfuseSpan = parent.span({
       id: span.id,
       name: span.name,
-      input: span.metadata.input,
-      output: span.metadata.output,
+      input: span.input,
+      output: span.output,
 
       metadata: {
         spanType: span.type,
@@ -164,7 +189,7 @@ export class LangfuseExporter implements AITracingExporter {
       tags: span.metadata.tags,
     });
 
-    this.spanMap.set(span.id, langfuseSpan);
+    traceData.spans.set(span.id, langfuseSpan);
   }
 
   private buildUpdateData(span: AnyAISpan): any {
@@ -182,8 +207,8 @@ export class LangfuseExporter implements AITracingExporter {
       const metadata = span.metadata as LLMGenerationMetadata;
       return {
         ...baseData,
-        input: metadata.input,
-        output: metadata.output,
+        input: span.input,
+        output: span.output,
         usage: metadata.usage
           ? {
               promptTokens: metadata.usage.promptTokens,
@@ -196,14 +221,15 @@ export class LangfuseExporter implements AITracingExporter {
 
     return {
       ...baseData,
-      input: span.metadata.input,
-      output: span.metadata.output,
+      input: span.input,
+      output: span.output,
     };
   }
 
   private buildEndData(span: AnyAISpan): any {
     const baseData = {
       endTime: span.endTime,
+      output: span.output,
       metadata: {
         spanType: span.type,
         ...this.sanitizeMetadata(span.metadata.attributes),
@@ -213,11 +239,11 @@ export class LangfuseExporter implements AITracingExporter {
     };
 
     // Add error information if present
-    if (span.metadata.error) {
+    if (span.errorInfo) {
       return {
         ...baseData,
         level: 'ERROR',
-        statusMessage: span.metadata.error.message,
+        statusMessage: span.errorInfo.message,
       };
     }
 
@@ -288,6 +314,5 @@ export class LangfuseExporter implements AITracingExporter {
   async shutdown(): Promise<void> {
     await this.client.shutdownAsync();
     this.traceMap.clear();
-    this.spanMap.clear();
   }
 }

@@ -126,10 +126,14 @@ describe('AI Tracing', () => {
       });
 
       // Agent span
-      const agentSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'test-agent', {
-        agentId: 'agent-123',
-        instructions: 'Test instructions',
-        maxSteps: 5,
+      const agentSpan = tracing.startSpan({
+        type: AISpanType.AGENT_RUN,
+        name: 'test-agent',
+        metadata: {
+          agentId: 'agent-123',
+          instructions: 'Test instructions',
+          maxSteps: 5,
+        },
       });
 
       expect(agentSpan.id).toBeValidSpanId();
@@ -149,11 +153,19 @@ describe('AI Tracing', () => {
         exporters: [testExporter],
       });
 
-      const agentSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'parent-agent', { agentId: 'agent-123' });
+      const agentSpan = tracing.startSpan({
+        type: AISpanType.AGENT_RUN,
+        name: 'parent-agent',
+        metadata: { agentId: 'agent-123' },
+      });
 
-      const toolSpan = agentSpan.createChildSpan(AISpanType.TOOL_CALL, 'child-tool', {
-        toolId: 'tool-456',
-        success: true,
+      const toolSpan = agentSpan.createChildSpan({
+        type: AISpanType.TOOL_CALL,
+        name: 'child-tool',
+        metadata: {
+          toolId: 'tool-456',
+          success: true,
+        },
       });
 
       expect(toolSpan.id).toBeValidSpanId();
@@ -171,7 +183,11 @@ describe('AI Tracing', () => {
       });
 
       // Create root span
-      const rootSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'root-agent', { agentId: 'agent-123' });
+      const rootSpan = tracing.startSpan({
+        type: AISpanType.AGENT_RUN,
+        name: 'root-agent',
+        metadata: { agentId: 'agent-123' },
+      });
 
       // Root span should have no parent and isRootSpan should be true
       expect(rootSpan.parent).toBeUndefined();
@@ -236,7 +252,11 @@ describe('AI Tracing', () => {
         exporters: [testExporter],
       });
 
-      const span = tracing.startSpan(AISpanType.LLM_GENERATION, 'test-llm', { model: 'gpt-4', provider: 'openai' });
+      const span = tracing.startSpan({
+        type: AISpanType.LLM_GENERATION,
+        name: 'test-llm',
+        metadata: { model: 'gpt-4', provider: 'openai' },
+      });
 
       // Should emit span_started
       expect(testExporter.events).toHaveLength(1);
@@ -244,7 +264,7 @@ describe('AI Tracing', () => {
       expect(testExporter.events[0].span.id).toBe(span.id);
 
       // Update span - cast to LLM metadata type for usage field
-      span.update({ usage: { totalTokens: 100 } });
+      span.update({ metadata: { usage: { totalTokens: 100 } } });
 
       // Should emit span_updated
       expect(testExporter.events).toHaveLength(2);
@@ -252,7 +272,7 @@ describe('AI Tracing', () => {
       expect((testExporter.events[1].span.metadata as LLMGenerationMetadata).usage?.totalTokens).toBe(100);
 
       // End span
-      span.end({ usage: { totalTokens: 150 } });
+      span.end({ metadata: { usage: { totalTokens: 150 } } });
 
       // Should emit span_ended
       expect(testExporter.events).toHaveLength(3);
@@ -268,7 +288,11 @@ describe('AI Tracing', () => {
         exporters: [testExporter],
       });
 
-      const span = tracing.startSpan(AISpanType.TOOL_CALL, 'error-tool', { toolId: 'failing-tool' });
+      const span = tracing.startSpan({
+        type: AISpanType.TOOL_CALL,
+        name: 'error-tool',
+        metadata: { toolId: 'failing-tool' },
+      });
 
       const error = new MastraError({
         id: 'TOOL_ERROR',
@@ -279,12 +303,12 @@ describe('AI Tracing', () => {
       });
 
       // Error should end span by default
-      span.error(error);
+      span.error({ error });
 
       expect(span.endTime).toBeInstanceOf(Date);
-      expect(span.metadata.error?.message).toBe('Tool failed');
-      expect(span.metadata.error?.id).toBe('TOOL_ERROR');
-      expect(span.metadata.error?.category).toBe('SYSTEM');
+      expect(span.errorInfo?.message).toBe('Tool failed');
+      expect(span.errorInfo?.id).toBe('TOOL_ERROR');
+      expect(span.errorInfo?.category).toBe('SYSTEM');
 
       // Should emit span_ended
       expect(testExporter.events).toHaveLength(2); // start + end
@@ -298,15 +322,19 @@ describe('AI Tracing', () => {
         exporters: [testExporter],
       });
 
-      const span = tracing.startSpan(AISpanType.TOOL_CALL, 'recoverable-tool', { toolId: 'retry-tool' });
+      const span = tracing.startSpan({
+        type: AISpanType.TOOL_CALL,
+        name: 'recoverable-tool',
+        metadata: { toolId: 'retry-tool' },
+      });
 
       const error = new Error('Recoverable error');
 
       // Error should NOT end span when explicitly set to false
-      span.error(error, false);
+      span.error({ error, endSpan: false });
 
       expect(span.endTime).toBeUndefined();
-      expect(span.metadata.error?.message).toBe('Recoverable error');
+      expect(span.errorInfo?.message).toBe('Recoverable error');
 
       // Should emit span_updated (not ended)
       expect(testExporter.events).toHaveLength(2); // start + update
@@ -917,28 +945,40 @@ describe('AI Tracing', () => {
       });
 
       // Agent metadata
-      const agentSpan = tracing.startSpan(AISpanType.AGENT_RUN, 'agent-test', {
-        agentId: 'agent-123',
-        instructions: 'Test agent',
-        maxSteps: 10,
+      const agentSpan = tracing.startSpan({
+        type: AISpanType.AGENT_RUN,
+        name: 'agent-test',
+        metadata: {
+          agentId: 'agent-123',
+          instructions: 'Test agent',
+          maxSteps: 10,
+        },
       });
 
       expect(agentSpan.metadata.agentId).toBe('agent-123');
 
       // LLM metadata
-      const llmSpan = tracing.startSpan(AISpanType.LLM_GENERATION, 'llm-test', {
-        model: 'gpt-4',
-        provider: 'openai',
-        usage: { totalTokens: 100 },
-        streaming: false,
+      const llmSpan = tracing.startSpan({
+        type: AISpanType.LLM_GENERATION,
+        name: 'llm-test',
+        metadata: {
+          model: 'gpt-4',
+          provider: 'openai',
+          usage: { totalTokens: 100 },
+          streaming: false,
+        },
       });
 
       expect(llmSpan.metadata.model).toBe('gpt-4');
 
       // Tool metadata
-      const toolSpan = tracing.startSpan(AISpanType.TOOL_CALL, 'tool-test', {
-        toolId: 'calculator',
-        success: true,
+      const toolSpan = tracing.startSpan({
+        type: AISpanType.TOOL_CALL,
+        name: 'tool-test',
+        metadata: {
+          toolId: 'calculator',
+          success: true,
+        },
       });
 
       expect(toolSpan.metadata.toolId).toBe('calculator');
@@ -1233,13 +1273,17 @@ describe('AI Tracing', () => {
           exporters: [testExporter],
         });
 
-        const span = tracing.startSpan(AISpanType.AGENT_RUN, 'test-agent', {
-          agentId: 'agent-123',
-          instructions: 'Test agent',
-        } as any);
+        const span = tracing.startSpan({
+          type: AISpanType.AGENT_RUN,
+          name: 'test-agent',
+          metadata: {
+            agentId: 'agent-123',
+            instructions: 'Test agent',
+          } as any,
+        });
 
         // Update span with non-standard field that should be filtered
-        span.update({ apiKey: 'secret-key-456' } as any);
+        span.update({ metadata: { apiKey: 'secret-key-456' } as any });
 
         span.end();
 

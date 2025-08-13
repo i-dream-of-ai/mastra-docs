@@ -4,7 +4,7 @@
 
 import { MastraError } from '../error';
 import type { IMastraLogger } from '../logger';
-import { ConsoleLogger } from '../logger';
+import { ConsoleLogger, LogLevel } from '../logger';
 import { MastraAITracing } from './base';
 import type {
   AISpanType,
@@ -68,16 +68,26 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   public startTime: Date;
   public endTime?: Date;
   public aiTracing: MastraAITracing;
+  public input?: any;
+  public output?: any;
+  public errorInfo?: {
+    message: string;
+    id?: string;
+    domain?: string;
+    category?: string;
+    details?: Record<string, any>;
+  };
 
   constructor(options: AISpanOptions<TType>, aiTracing: MastraAITracing) {
     this.id = generateSpanId();
     this.name = options.name;
     this.type = options.type;
-    this.metadata = options.metadata;
+    this.metadata = options.metadata || ({} as AISpanTypeMap[TType]);
     this.parent = options.parent;
     this.trace = options.parent ? options.parent.trace : (this as any);
     this.startTime = new Date();
     this.aiTracing = aiTracing;
+    this.input = options.input;
 
     // Set trace ID: generate new for root spans, inherit for child spans
     if (!options.parent) {
@@ -89,49 +99,80 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
     }
   }
 
-  end(metadata?: Partial<AISpanTypeMap[TType]>): void {
+  end(options?: {
+    output?: any;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+  }): void {
     this.endTime = new Date();
-    if (metadata) {
-      this.metadata = { ...this.metadata, ...metadata };
+    if (options?.output !== undefined) {
+      this.output = options.output;
+    }
+    if (options?.metadata) {
+      this.metadata = { ...this.metadata, ...options.metadata };
     }
     // Tracing events automatically handled by base class
   }
 
-  error(error: MastraError | Error, endSpan: boolean = true): void {
-    const errorMetadata =
+  error(options: {
+    error: MastraError | Error;
+    endSpan?: boolean;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+  }): void {
+    const { error, endSpan = true, metadata } = options;
+    
+    this.errorInfo =
       error instanceof MastraError
         ? {
-            error: {
-              id: error.id,
-              details: error.details,
-              category: error.category,
-              domain: error.domain,
-              message: error.message,
-            },
+            id: error.id,
+            details: error.details,
+            category: error.category,
+            domain: error.domain,
+            message: error.message,
           }
         : {
-            error: {
-              message: error.message,
-            },
+            message: error.message,
           };
 
-    if (endSpan) {
-      this.end(errorMetadata as Partial<AISpanTypeMap[TType]>);
-    } else {
-      this.update(errorMetadata as Partial<AISpanTypeMap[TType]>);
+    // Update metadata if provided
+    if (metadata) {
+      this.metadata = { ...this.metadata, ...metadata };
     }
+
+    if (endSpan) {
+      this.end();
+    } else {
+      // Trigger span update event when not ending the span
+      this.update({});
+    }
+    // Note: errorInfo is now a span property, metadata handled above
   }
 
-  createChildSpan<TChildType extends AISpanType>(
-    type: TChildType,
-    name: string,
-    metadata: AISpanTypeMap[TChildType],
-  ): AISpan<TChildType> {
-    return this.aiTracing.startSpan(type, name, metadata, this);
+  createChildSpan<TChildType extends AISpanType>(options: {
+    type: TChildType;
+    name: string;
+    input?: any;
+    metadata?: AISpanTypeMap[TChildType];
+  }): AISpan<TChildType> {
+    return this.aiTracing.startSpan({
+      ...options,
+      parent: this,
+    });
   }
 
-  update(metadata: Partial<AISpanTypeMap[TType]>): void {
-    this.metadata = { ...this.metadata, ...metadata };
+  update(options?: {
+    input?: any;
+    output?: any;
+    metadata?: Partial<AISpanTypeMap[TType]>;
+  }): void {
+    if (options?.input !== undefined) {
+      this.input = options.input;
+    }
+    if (options?.output !== undefined) {
+      this.output = options.output;
+    }
+    if (options?.metadata) {
+      this.metadata = { ...this.metadata, ...options.metadata };
+    }
     // Tracing events automatically handled by base class
   }
 
@@ -247,6 +288,7 @@ export class DefaultConsoleExporter implements AITracingExporter {
       // Fallback: create a direct ConsoleLogger instance if none provided
       this.logger = new ConsoleLogger({
         name: 'default-console-exporter',
+        level: LogLevel.INFO, // Set to INFO so that info() calls actually log
       });
     }
   }
@@ -278,6 +320,9 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   Name: ${span.name}`);
         this.logger.info(`   ID: ${span.id}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
+        if (span.input !== undefined) {
+          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+        }
         this.logger.info(`   Metadata: ${formatMetadata(span.metadata)}`);
         this.logger.info('─'.repeat(80));
         break;
@@ -290,7 +335,16 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   ID: ${span.id}`);
         this.logger.info(`   Duration: ${duration}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
-        this.logger.info(`   Final Metadata: ${formatMetadata(span.metadata)}`);
+        if (span.input !== undefined) {
+          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+        }
+        if (span.output !== undefined) {
+          this.logger.info(`   Output: ${formatMetadata(span.output)}`);
+        }
+        if (span.errorInfo) {
+          this.logger.info(`   Error: ${formatMetadata(span.errorInfo)}`);
+        }
+        this.logger.info(`   Metadata: ${formatMetadata(span.metadata)}`);
         this.logger.info('─'.repeat(80));
         break;
 
@@ -300,6 +354,15 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   Name: ${span.name}`);
         this.logger.info(`   ID: ${span.id}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
+        if (span.input !== undefined) {
+          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+        }
+        if (span.output !== undefined) {
+          this.logger.info(`   Output: ${formatMetadata(span.output)}`);
+        }
+        if (span.errorInfo) {
+          this.logger.info(`   Error: ${formatMetadata(span.errorInfo)}`);
+        }
         this.logger.info(`   Updated Metadata: ${formatMetadata(span.metadata)}`);
         this.logger.info('─'.repeat(80));
         break;

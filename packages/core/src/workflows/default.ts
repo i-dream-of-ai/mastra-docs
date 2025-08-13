@@ -172,25 +172,34 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     //clear runCounts
     this.runCounts.clear();
 
+    console.log("STARTING WORKFLOW")
+
     let aiSpan: AISpan<AISpanType.WORKFLOW_RUN> | undefined;
     if (parentSpan) {
-      aiSpan = parentSpan.createChildSpan(AISpanType.WORKFLOW_RUN, `workflow-${workflowId}`, {
-        workflowId,
+      aiSpan = parentSpan.createChildSpan({
+        type: AISpanType.WORKFLOW_RUN,
+        name: `workflow-${workflowId}`,
+        input,
+        metadata: {
+          workflowId,
+        },
       });
     } else {
       const aiTracing = getSelectedAITracing({
         runtimeContext: runtimeContext,
       });
       if (aiTracing) {
-        aiSpan = aiTracing.startSpan(
-          AISpanType.WORKFLOW_RUN,
-          `workflow-${workflowId}`,
-          {
+        aiSpan = aiTracing.startSpan({
+          type: AISpanType.WORKFLOW_RUN,
+          name: `workflow-${workflowId}`,
+          input,
+          metadata: {
             workflowId,
           },
-          undefined,
-          runtimeContext,
-        );
+          startOptions: {
+            runtimeContext,
+          },
+        });
       }
     }
 
@@ -202,7 +211,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
         category: ErrorCategory.USER,
       });
 
-      aiSpan?.error(empty_graph_error);
+      aiSpan?.error({ error: empty_graph_error });
       throw empty_graph_error;
     }
 
@@ -245,7 +254,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           writableStream: params.writableStream,
         });
 
-        // if step result is not success
+        // if step result is not success, stop and return
         if (lastOutput.result.status !== 'success') {
           if (lastOutput.result.status === 'bailed') {
             lastOutput.result.status = 'success';
@@ -269,16 +278,25 @@ export class DefaultExecutionEngine extends ExecutionEngine {
             runtimeContext: params.runtimeContext,
           });
 
-          aiSpan?.end({
-            status: result.status,
-            output: result.result,
-            error: result.error,
-          });
-
+          if (result.error) {
+            aiSpan?.error({
+              error: result.error,
+              metadata: {
+                status: result.status,
+              },
+            })
+          } else {
+            aiSpan?.end({
+              output: result.result,
+              metadata: {
+                status: result.status,
+              },
+            });
+          }
           return result;
         }
 
-        // if error occurred during step execution
+      // if error occurred during step execution, stop and return
       } catch (e) {
         const error =
           e instanceof MastraError
@@ -314,17 +332,18 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           runtimeContext: params.runtimeContext,
         });
 
-        aiSpan?.end({
-          status: result.status,
-          output: result.result,
-          error: result.error,
-        });
+        aiSpan?.error({
+          error,
+          metadata: {
+            status: result.status,
+          },
+        })
 
         return result;
       }
     }
 
-    // after all steps are successful
+    // after all steps are successful, return result
     const result = (await this.fmtReturnValue(executionSpan, params.emitter, stepResults, lastOutput.result)) as any;
     await this.persistStepUpdate({
       workflowId,
@@ -339,9 +358,10 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     });
 
     aiSpan?.end({
-      status: result.status,
       output: result.result,
-      error: result.error,
+      metadata: {
+        status: result.status,
+      },
     });
 
     return result;
