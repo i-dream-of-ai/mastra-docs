@@ -61,7 +61,7 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   public id: string;
   public name: string;
   public type: TType;
-  public metadata: AISpanTypeMap[TType];
+  public attributes: AISpanTypeMap[TType];
   public parent?: AnyAISpan;
   public trace: AnyAISpan;
   public traceId: string;
@@ -77,12 +77,14 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
     category?: string;
     details?: Record<string, any>;
   };
+  public metadata?: Record<string, any>;
 
   constructor(options: AISpanOptions<TType>, aiTracing: MastraAITracing) {
     this.id = generateSpanId();
     this.name = options.name;
     this.type = options.type;
-    this.metadata = options.metadata || ({} as AISpanTypeMap[TType]);
+    this.attributes = options.attributes || ({} as AISpanTypeMap[TType]);
+    this.metadata = options.metadata;
     this.parent = options.parent;
     this.trace = options.parent ? options.parent.trace : (this as any);
     this.startTime = new Date();
@@ -99,13 +101,13 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
     }
   }
 
-  end(options?: {
-    output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
-  }): void {
+  end(options?: { output?: any; attributes?: Partial<AISpanTypeMap[TType]>; metadata?: Record<string, any> }): void {
     this.endTime = new Date();
     if (options?.output !== undefined) {
       this.output = options.output;
+    }
+    if (options?.attributes) {
+      this.attributes = { ...this.attributes, ...options.attributes };
     }
     if (options?.metadata) {
       this.metadata = { ...this.metadata, ...options.metadata };
@@ -116,10 +118,11 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   error(options: {
     error: MastraError | Error;
     endSpan?: boolean;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
   }): void {
-    const { error, endSpan = true, metadata } = options;
-    
+    const { error, endSpan = true, attributes, metadata } = options;
+
     this.errorInfo =
       error instanceof MastraError
         ? {
@@ -133,7 +136,10 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
             message: error.message,
           };
 
-    // Update metadata if provided
+    // Update attributes if provided
+    if (attributes) {
+      this.attributes = { ...this.attributes, ...attributes };
+    }
     if (metadata) {
       this.metadata = { ...this.metadata, ...metadata };
     }
@@ -144,14 +150,15 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
       // Trigger span update event when not ending the span
       this.update({});
     }
-    // Note: errorInfo is now a span property, metadata handled above
+    // Note: errorInfo is now a span property, attributes handled above
   }
 
   createChildSpan<TChildType extends AISpanType>(options: {
     type: TChildType;
     name: string;
     input?: any;
-    metadata?: AISpanTypeMap[TChildType];
+    attributes?: AISpanTypeMap[TChildType];
+    metadata?: Record<string, any>;
   }): AISpan<TChildType> {
     return this.aiTracing.startSpan({
       ...options,
@@ -162,13 +169,17 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   update(options?: {
     input?: any;
     output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
   }): void {
     if (options?.input !== undefined) {
       this.input = options.input;
     }
     if (options?.output !== undefined) {
       this.output = options.output;
+    }
+    if (options?.attributes) {
+      this.attributes = { ...this.attributes, ...options.attributes };
     }
     if (options?.metadata) {
       this.metadata = { ...this.metadata, ...options.metadata };
@@ -183,6 +194,7 @@ class DefaultAISpan<TType extends AISpanType> implements AISpan<TType> {
   async export(): Promise<string> {
     return JSON.stringify({
       id: this.id,
+      attributes: this.attributes,
       metadata: this.metadata,
       startTime: this.startTime,
       endTime: this.endTime,
@@ -253,15 +265,19 @@ export class SensitiveDataFilter implements AISpanProcessor {
     };
 
     try {
-      // Create a copy of the span with filtered metadata
+      // Create a copy of the span with filtered attributes
       const filteredSpan = { ...span };
+      filteredSpan.attributes = deepFilter(span.attributes);
       filteredSpan.metadata = deepFilter(span.metadata);
+      filteredSpan.input = deepFilter(span.input);
+      filteredSpan.output = deepFilter(span.output);
+      filteredSpan.errorInfo = deepFilter(span.errorInfo);
       return filteredSpan;
     } catch (error) {
       // If filtering fails, return heavily redacted span for security
       const safeSpan = { ...span };
-      safeSpan.metadata = {
-        '[FILTERING_ERROR]': 'Metadata was completely redacted due to filtering error',
+      safeSpan.attributes = {
+        '[FILTERING_ERROR]': 'Attributes were completely redacted due to filtering error',
         '[ERROR_MESSAGE]': error instanceof Error ? error.message : 'Unknown filtering error',
       } as any;
       return safeSpan;
@@ -296,13 +312,13 @@ export class DefaultConsoleExporter implements AITracingExporter {
   async exportEvent(event: AITracingEvent): Promise<void> {
     const span = event.span;
 
-    // Helper to safely stringify metadata (filtering already done by processor)
-    const formatMetadata = (metadata: any) => {
+    // Helper to safely stringify attributes (filtering already done by processor)
+    const formatAttributes = (attributes: any) => {
       try {
-        return JSON.stringify(metadata, null, 2);
+        return JSON.stringify(attributes, null, 2);
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Unknown formatting error';
-        return `[Unable to serialize metadata: ${errMsg}]`;
+        return `[Unable to serialize attributes: ${errMsg}]`;
       }
     };
 
@@ -321,9 +337,9 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   ID: ${span.id}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
         if (span.input !== undefined) {
-          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+          this.logger.info(`   Input: ${formatAttributes(span.input)}`);
         }
-        this.logger.info(`   Metadata: ${formatMetadata(span.metadata)}`);
+        this.logger.info(`   Attributes: ${formatAttributes(span.attributes)}`);
         this.logger.info('─'.repeat(80));
         break;
 
@@ -336,15 +352,15 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   Duration: ${duration}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
         if (span.input !== undefined) {
-          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+          this.logger.info(`   Input: ${formatAttributes(span.input)}`);
         }
         if (span.output !== undefined) {
-          this.logger.info(`   Output: ${formatMetadata(span.output)}`);
+          this.logger.info(`   Output: ${formatAttributes(span.output)}`);
         }
         if (span.errorInfo) {
-          this.logger.info(`   Error: ${formatMetadata(span.errorInfo)}`);
+          this.logger.info(`   Error: ${formatAttributes(span.errorInfo)}`);
         }
-        this.logger.info(`   Metadata: ${formatMetadata(span.metadata)}`);
+        this.logger.info(`   Attributes: ${formatAttributes(span.attributes)}`);
         this.logger.info('─'.repeat(80));
         break;
 
@@ -355,15 +371,15 @@ export class DefaultConsoleExporter implements AITracingExporter {
         this.logger.info(`   ID: ${span.id}`);
         this.logger.info(`   Trace ID: ${span.traceId}`);
         if (span.input !== undefined) {
-          this.logger.info(`   Input: ${formatMetadata(span.input)}`);
+          this.logger.info(`   Input: ${formatAttributes(span.input)}`);
         }
         if (span.output !== undefined) {
-          this.logger.info(`   Output: ${formatMetadata(span.output)}`);
+          this.logger.info(`   Output: ${formatAttributes(span.output)}`);
         }
         if (span.errorInfo) {
-          this.logger.info(`   Error: ${formatMetadata(span.errorInfo)}`);
+          this.logger.info(`   Error: ${formatAttributes(span.errorInfo)}`);
         }
-        this.logger.info(`   Updated Metadata: ${formatMetadata(span.metadata)}`);
+        this.logger.info(`   Updated Attributes: ${formatAttributes(span.attributes)}`);
         this.logger.info('─'.repeat(80));
         break;
 

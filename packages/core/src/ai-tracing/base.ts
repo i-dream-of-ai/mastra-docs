@@ -79,23 +79,25 @@ export abstract class MastraAITracing extends MastraBase {
     type: TType;
     name: string;
     input?: any;
-    metadata?: AISpanTypeMap[TType];
+    attributes?: AISpanTypeMap[TType];
+    metadata?: Record<string, any>;
     parent?: AnyAISpan;
     startOptions?: {
       runtimeContext?: RuntimeContext;
     };
   }): AISpan<TType> {
-    const { type, name, input, metadata, parent, startOptions } = options;
+    const { type, name, input, attributes, metadata, parent, startOptions } = options;
     const { runtimeContext } = startOptions || {};
 
     if (!this.shouldSample({ runtimeContext })) {
-      return new NoOpAISpan<TType>({ type, name, input, metadata, parent }, this);
+      return new NoOpAISpan<TType>({ type, name, input, attributes, metadata, parent }, this);
     }
 
     const spanOptions: AISpanOptions<TType> = {
       type,
       name,
       input,
+      attributes,
       metadata,
       parent,
     };
@@ -119,7 +121,7 @@ export abstract class MastraAITracing extends MastraBase {
    * Create a new span (called after sampling)
    *
    * Implementations should:
-   * 1. Create a plain span with the provided metadata
+   * 1. Create a plain span with the provided attributes
    * 2. Return the span - base class handles all tracing lifecycle automatically
    *
    * The base class will automatically:
@@ -181,7 +183,8 @@ export abstract class MastraAITracing extends MastraBase {
     // Wrap methods to automatically emit tracing events
     span.end = (options?: {
       output?: any;
-      metadata?: Partial<AISpanTypeMap[TType]>;
+      attributes?: Partial<AISpanTypeMap[TType]>;
+      metadata?: Record<string, any>;
     }) => {
       originalEnd(options);
       this.emitSpanEnded(span);
@@ -190,7 +193,8 @@ export abstract class MastraAITracing extends MastraBase {
     span.update = (options?: {
       input?: any;
       output?: any;
-      metadata?: Partial<AISpanTypeMap[TType]>;
+      attributes?: Partial<AISpanTypeMap[TType]>;
+      metadata?: Record<string, any>;
     }) => {
       originalUpdate(options);
       this.emitSpanUpdated(span);

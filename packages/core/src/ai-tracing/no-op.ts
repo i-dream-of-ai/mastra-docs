@@ -9,7 +9,7 @@ export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType>
   public id: string;
   public name: string;
   public type: TType;
-  public metadata: AISpanTypeMap[TType];
+  public attributes: AISpanTypeMap[TType];
   public parent?: AnyAISpan;
   public trace: AnyAISpan;
   public traceId: string;
@@ -25,12 +25,14 @@ export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType>
     category?: string;
     details?: Record<string, any>;
   };
+  public metadata?: Record<string, any>;
 
   constructor(options: AISpanOptions<TType>, aiTracing: MastraAITracing) {
     this.id = 'no-op';
     this.name = options.name;
     this.type = options.type;
-    this.metadata = options.metadata || ({} as AISpanTypeMap[TType]);
+    this.attributes = options.attributes || ({} as AISpanTypeMap[TType]);
+    this.metadata = options.metadata;
     this.parent = options.parent;
     this.trace = options.parent ? options.parent.trace : (this as any);
     this.traceId = 'no-op-trace';
@@ -39,31 +41,32 @@ export class NoOpAISpan<TType extends AISpanType = any> implements AISpan<TType>
     this.input = options.input;
   }
 
-  end(_options?: {
-    output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
-  }): void {}
-  
+  end(_options?: { output?: any; attributes?: Partial<AISpanTypeMap[TType]>; metadata?: Record<string, any> }): void {}
+
   error(_options: {
     error: any;
     endSpan?: boolean;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
   }): void {}
-  
+
   createChildSpan<TChildType extends AISpanType>(options: {
     type: TChildType;
     name: string;
     input?: any;
-    metadata?: AISpanTypeMap[TChildType];
+    attributes?: AISpanTypeMap[TChildType];
+    metadata?: Record<string, any>;
   }): AISpan<TChildType> {
     return new NoOpAISpan<TChildType>({ ...options, parent: this }, this.aiTracing);
   }
-  
+
   update(_options?: {
     input?: any;
     output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
   }): void {}
+
   get isRootSpan(): boolean {
     return !this.parent;
   }

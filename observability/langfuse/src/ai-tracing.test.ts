@@ -9,14 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AITracingEvent,
-  AnyAISpan,
-  LLMGenerationMetadata,
-  AgentRunMetadata,
-  ToolCallMetadata,
-  MCPToolCallMetadata,
-} from '@mastra/core/ai-tracing';
+import type { AITracingEvent, AnyAISpan, LLMGenerationAttributes, ToolCallAttributes } from '@mastra/core/ai-tracing';
 import { AISpanType, AITracingEventType } from '@mastra/core/ai-tracing';
 import { LangfuseExporter, type LangfuseExporterConfig } from './ai-tracing';
 import { Langfuse } from 'langfuse';
@@ -105,12 +98,11 @@ describe('LangfuseExporter', () => {
         name: 'root-agent',
         type: AISpanType.AGENT_RUN,
         isRoot: true,
-        metadata: {
+        attributes: {
           agentId: 'agent-123',
           instructions: 'Test agent',
-          tags: ['test', 'agent'],
-          attributes: { userId: 'user-456', sessionId: 'session-789' },
         },
+        metadata: { userId: 'user-456', sessionId: 'session-789' },
       });
 
       const event: AITracingEvent = {
@@ -126,7 +118,6 @@ describe('LangfuseExporter', () => {
         name: 'root-agent',
         userId: 'user-456',
         sessionId: 'session-789',
-        tags: ['test', 'agent'],
         metadata: { userId: 'user-456', sessionId: 'session-789' },
       });
     });
@@ -137,7 +128,7 @@ describe('LangfuseExporter', () => {
         name: 'child-tool',
         type: AISpanType.TOOL_CALL,
         isRoot: false,
-        metadata: { toolId: 'calculator' },
+        attributes: { toolId: 'calculator' },
       });
 
       const event: AITracingEvent = {
@@ -161,7 +152,7 @@ describe('LangfuseExporter', () => {
         isRoot: true,
         input: { messages: [{ role: 'user', content: 'Hello' }] },
         output: { content: 'Hi there!' },
-        metadata: {
+        attributes: {
           model: 'gpt-4',
           provider: 'openai',
           usage: {
@@ -176,7 +167,6 @@ describe('LangfuseExporter', () => {
           },
           streaming: false,
           resultType: 'response_generation',
-          tags: ['llm'],
         },
       });
 
@@ -196,9 +186,6 @@ describe('LangfuseExporter', () => {
           temperature: 0.7,
           maxTokens: 100,
           topP: 0.9,
-          frequencyPenalty: undefined,
-          presencePenalty: undefined,
-          stop: undefined,
         },
         input: { messages: [{ role: 'user', content: 'Hello' }] },
         output: { content: 'Hi there!' },
@@ -211,7 +198,6 @@ describe('LangfuseExporter', () => {
           provider: 'openai',
           resultType: 'response_generation',
           streaming: false,
-          tags: ['llm'],
         },
       });
     });
@@ -222,7 +208,7 @@ describe('LangfuseExporter', () => {
         name: 'simple-llm',
         type: AISpanType.LLM_GENERATION,
         isRoot: true,
-        metadata: {
+        attributes: {
           model: 'gpt-3.5-turbo',
           // No usage, parameters, input, output, etc.
         },
@@ -248,7 +234,6 @@ describe('LangfuseExporter', () => {
           resultType: undefined,
           streaming: undefined,
         },
-        tags: undefined,
       });
     });
   });
@@ -262,10 +247,9 @@ describe('LangfuseExporter', () => {
         isRoot: true,
         input: { operation: 'add', a: 2, b: 3 },
         output: { result: 5 },
-        metadata: {
+        attributes: {
           toolId: 'calculator',
           success: true,
-          tags: ['tool', 'math'],
         },
       });
 
@@ -285,7 +269,7 @@ describe('LangfuseExporter', () => {
           spanType: 'tool_call',
           toolId: 'calculator',
           success: true,
-          tags: ['tool', 'math'],
+          toolType: undefined,
         },
       });
     });
@@ -298,7 +282,7 @@ describe('LangfuseExporter', () => {
         name: 'customer-agent',
         type: AISpanType.AGENT_RUN,
         isRoot: true,
-        metadata: {
+        attributes: {
           agentId: 'agent-456',
           availableTools: ['search', 'calculator'],
           maxSteps: 10,
@@ -333,7 +317,7 @@ describe('LangfuseExporter', () => {
         name: 'mcp-tool-call',
         type: AISpanType.MCP_TOOL_CALL,
         isRoot: true,
-        metadata: {
+        attributes: {
           toolId: 'file-reader',
           mcpServer: 'filesystem-mcp',
           serverVersion: '1.0.0',
@@ -352,7 +336,7 @@ describe('LangfuseExporter', () => {
         expect.objectContaining({
           metadata: expect.objectContaining({
             spanType: 'mcp_tool_call',
-            toolName: 'file-reader', // Note: maps toolId to toolName
+            toolId: 'file-reader',
             mcpServer: 'filesystem-mcp',
             serverVersion: '1.0.0',
             success: true,
@@ -367,7 +351,7 @@ describe('LangfuseExporter', () => {
         name: 'data-processing-workflow',
         type: AISpanType.WORKFLOW_RUN,
         isRoot: true,
-        metadata: {
+        attributes: {
           workflowId: 'wf-123',
           status: 'running',
         },
@@ -400,7 +384,7 @@ describe('LangfuseExporter', () => {
         name: 'gpt-4-call',
         type: AISpanType.LLM_GENERATION,
         isRoot: true,
-        metadata: { model: 'gpt-4' },
+        attributes: { model: 'gpt-4' },
       });
 
       await exporter.exportEvent({
@@ -409,10 +393,10 @@ describe('LangfuseExporter', () => {
       });
 
       // Then update it
-      llmSpan.metadata = {
-        ...llmSpan.metadata,
+      llmSpan.attributes = {
+        ...llmSpan.attributes,
         usage: { totalTokens: 150 },
-      } as LLMGenerationMetadata;
+      } as LLMGenerationAttributes;
       llmSpan.output = { content: 'Updated response' };
 
       await exporter.exportEvent({
@@ -424,7 +408,6 @@ describe('LangfuseExporter', () => {
         metadata: expect.objectContaining({
           spanType: 'llm_generation',
         }),
-        tags: undefined,
         input: undefined,
         output: { content: 'Updated response' },
         usage: {
@@ -441,7 +424,7 @@ describe('LangfuseExporter', () => {
         name: 'calculator',
         type: AISpanType.TOOL_CALL,
         isRoot: true,
-        metadata: { toolId: 'calc', success: false },
+        attributes: { toolId: 'calc', success: false },
       });
 
       await exporter.exportEvent({
@@ -450,10 +433,10 @@ describe('LangfuseExporter', () => {
       });
 
       // Update with success
-      toolSpan.metadata = {
-        ...toolSpan.metadata,
+      toolSpan.attributes = {
+        ...toolSpan.attributes,
         success: true,
-      } as ToolCallMetadata;
+      } as ToolCallAttributes;
       toolSpan.output = { result: 42 };
 
       await exporter.exportEvent({
@@ -466,7 +449,6 @@ describe('LangfuseExporter', () => {
           spanType: 'tool_call',
           success: true,
         }),
-        tags: undefined,
         input: undefined,
         output: { result: 42 },
       });
@@ -480,7 +462,7 @@ describe('LangfuseExporter', () => {
         name: 'test',
         type: AISpanType.GENERIC,
         isRoot: true,
-        metadata: {},
+        attributes: {},
       });
 
       span.endTime = new Date();
@@ -500,7 +482,6 @@ describe('LangfuseExporter', () => {
         metadata: expect.objectContaining({
           spanType: 'generic',
         }),
-        tags: undefined,
         level: 'DEFAULT',
       });
     });
@@ -511,7 +492,7 @@ describe('LangfuseExporter', () => {
         name: 'failing-operation',
         type: AISpanType.TOOL_CALL,
         isRoot: true,
-        metadata: {
+        attributes: {
           toolId: 'failing-tool',
         },
         errorInfo: {
@@ -539,7 +520,6 @@ describe('LangfuseExporter', () => {
           spanType: 'tool_call',
           toolId: 'failing-tool',
         }),
-        tags: undefined,
         level: 'ERROR',
         statusMessage: 'Tool execution failed',
       });
@@ -551,7 +531,7 @@ describe('LangfuseExporter', () => {
         name: 'root',
         type: AISpanType.AGENT_RUN,
         isRoot: true,
-        metadata: { agentId: 'agent-123' },
+        attributes: { agentId: 'agent-123' },
       });
 
       // Start span
@@ -582,7 +562,7 @@ describe('LangfuseExporter', () => {
         name: 'orphan',
         type: AISpanType.TOOL_CALL,
         isRoot: false, // Child span without parent trace
-        metadata: { toolId: 'orphan-tool' },
+        attributes: { toolId: 'orphan-tool' },
       });
 
       // Should not throw when trying to create child span without trace
@@ -604,7 +584,7 @@ describe('LangfuseExporter', () => {
         name: 'missing',
         type: AISpanType.GENERIC,
         isRoot: true,
-        metadata: {},
+        attributes: {},
       });
 
       // Try to update non-existent span
@@ -633,7 +613,7 @@ describe('LangfuseExporter', () => {
         name: 'test',
         type: AISpanType.GENERIC,
         isRoot: true,
-        metadata: {},
+        attributes: {},
       });
 
       await exporter.exportEvent({
@@ -663,6 +643,7 @@ function createMockSpan({
   name,
   type,
   isRoot,
+  attributes,
   metadata,
   input,
   output,
@@ -672,7 +653,8 @@ function createMockSpan({
   name: string;
   type: AISpanType;
   isRoot: boolean;
-  metadata: any;
+  attributes: any;
+  metadata?: Record<string, any>;
   input?: any;
   output?: any;
   errorInfo?: any;
@@ -681,6 +663,7 @@ function createMockSpan({
     id,
     name,
     type,
+    attributes,
     metadata,
     input,
     output,
@@ -694,7 +677,7 @@ function createMockSpan({
     trace: {
       id: isRoot ? id : 'parent-trace-id',
       traceId: isRoot ? id : 'parent-trace-id',
-    },
+    } as AnyAISpan,
     parent: isRoot ? undefined : { id: 'parent-id' },
     aiTracing: {} as any,
     end: vi.fn(),

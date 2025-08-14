@@ -172,7 +172,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     //clear runCounts
     this.runCounts.clear();
 
-    console.log("STARTING WORKFLOW")
+    console.log('STARTING WORKFLOW');
 
     let aiSpan: AISpan<AISpanType.WORKFLOW_RUN> | undefined;
     if (parentSpan) {
@@ -180,7 +180,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
         type: AISpanType.WORKFLOW_RUN,
         name: `workflow-${workflowId}`,
         input,
-        metadata: {
+        attributes: {
           workflowId,
         },
       });
@@ -193,7 +193,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           type: AISpanType.WORKFLOW_RUN,
           name: `workflow-${workflowId}`,
           input,
-          metadata: {
+          attributes: {
             workflowId,
           },
           startOptions: {
@@ -281,14 +281,14 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           if (result.error) {
             aiSpan?.error({
               error: result.error,
-              metadata: {
+              attributes: {
                 status: result.status,
               },
-            })
+            });
           } else {
             aiSpan?.end({
               output: result.result,
-              metadata: {
+              attributes: {
                 status: result.status,
               },
             });
@@ -296,7 +296,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           return result;
         }
 
-      // if error occurred during step execution, stop and return
+        // if error occurred during step execution, stop and return
       } catch (e) {
         const error =
           e instanceof MastraError
@@ -334,10 +334,10 @@ export class DefaultExecutionEngine extends ExecutionEngine {
 
         aiSpan?.error({
           error,
-          metadata: {
+          attributes: {
             status: result.status,
           },
-        })
+        });
 
         return result;
       }
@@ -359,7 +359,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
 
     aiSpan?.end({
       output: result.result,
-      metadata: {
+      attributes: {
         status: result.status,
       },
     });

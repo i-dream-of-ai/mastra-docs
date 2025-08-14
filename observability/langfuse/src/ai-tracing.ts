@@ -8,7 +8,7 @@
 
 import { Langfuse } from 'langfuse';
 import type { LangfuseTraceClient, LangfuseSpanClient, LangfuseGenerationClient } from 'langfuse';
-import type { AITracingExporter, AITracingEvent, AnyAISpan, LLMGenerationMetadata } from '@mastra/core/ai-tracing';
+import type { AITracingExporter, AITracingEvent, AnyAISpan, LLMGenerationAttributes } from '@mastra/core/ai-tracing';
 import { AISpanType } from '@mastra/core/ai-tracing';
 
 export interface LangfuseExporterConfig {
@@ -76,11 +76,10 @@ export class LangfuseExporter implements AITracingExporter {
       const trace = this.client.trace({
         id: span.trace.id,
         name: span.name,
-        userId: span.metadata.attributes?.userId,
-        sessionId: span.metadata.attributes?.sessionId,
-        tags: span.metadata.tags,
+        userId: span.metadata?.userId,
+        sessionId: span.metadata?.sessionId,
         input: span.input,
-        metadata: this.sanitizeMetadata(span.metadata.attributes),
+        metadata: this.sanitizeMetadata(span.metadata),
       });
       this.traceMap.set(span.trace.id, {
         trace,
@@ -129,7 +128,7 @@ export class LangfuseExporter implements AITracingExporter {
     const traceData = this.traceMap.get(span.trace.id);
     if (!traceData) return;
 
-    const metadata = span.metadata as LLMGenerationMetadata;
+    const attributes = span.attributes as LLMGenerationAttributes;
 
     const parent =
       span.parent && traceData.spans.has(span.parent.id) ? traceData.spans.get(span.parent.id)! : traceData.trace;
@@ -137,17 +136,16 @@ export class LangfuseExporter implements AITracingExporter {
     const generation = parent.generation({
       id: span.id,
       name: span.name,
-      model: metadata.model,
-      modelParameters: metadata.parameters,
+      model: attributes.model,
+      modelParameters: attributes.parameters,
       input: span.input,
       output: span.output,
-      usage: metadata.usage,
+      usage: attributes.usage,
       metadata: {
-        provider: metadata.provider,
-        resultType: metadata.resultType,
-        streaming: metadata.streaming,
-        tags: metadata.tags,
-        ...this.sanitizeMetadata(metadata.attributes),
+        provider: attributes.provider,
+        resultType: attributes.resultType,
+        streaming: attributes.streaming,
+        ...this.sanitizeMetadata(span.metadata),
       },
     });
 
@@ -169,9 +167,8 @@ export class LangfuseExporter implements AITracingExporter {
 
       metadata: {
         spanType: span.type,
-        tags: span.metadata.tags,
-        ...this.sanitizeMetadata(span.metadata.attributes),
-        ...this.extractTypeSpecificMetadata(span),
+        ...span.attributes,
+        ...this.sanitizeMetadata(span.metadata),
       },
     });
 
@@ -182,24 +179,23 @@ export class LangfuseExporter implements AITracingExporter {
     const baseData: any = {
       metadata: {
         spanType: span.type,
-        ...this.sanitizeMetadata(span.metadata.attributes),
-        ...this.extractTypeSpecificMetadata(span),
+        ...span.attributes,
+        ...this.sanitizeMetadata(span.metadata),
       },
-      tags: span.metadata.tags,
     };
 
     // Add type-specific update data
     if (span.type === AISpanType.LLM_GENERATION) {
-      const metadata = span.metadata as LLMGenerationMetadata;
+      const attributes = span.attributes as LLMGenerationAttributes;
       return {
         ...baseData,
         input: span.input,
         output: span.output,
-        usage: metadata.usage
+        usage: attributes.usage
           ? {
-              promptTokens: metadata.usage.promptTokens,
-              completionTokens: metadata.usage.completionTokens,
-              totalTokens: metadata.usage.totalTokens,
+              promptTokens: attributes.usage.promptTokens,
+              completionTokens: attributes.usage.completionTokens,
+              totalTokens: attributes.usage.totalTokens,
             }
           : undefined,
       };
@@ -218,10 +214,9 @@ export class LangfuseExporter implements AITracingExporter {
       output: span.output,
       metadata: {
         spanType: span.type,
-        ...this.sanitizeMetadata(span.metadata.attributes),
-        ...this.extractTypeSpecificMetadata(span),
+        ...span.attributes,
+        ...this.sanitizeMetadata(span.metadata),
       },
-      tags: span.metadata.tags,
     };
 
     // Add error information if present
@@ -237,42 +232,6 @@ export class LangfuseExporter implements AITracingExporter {
       ...baseData,
       level: 'DEFAULT',
     };
-  }
-
-  private extractTypeSpecificMetadata(span: AnyAISpan): Record<string, any> {
-    const metadata = span.metadata as any;
-    const result: Record<string, any> = {};
-
-    // Add type-specific metadata
-    switch (span.type) {
-      case AISpanType.AGENT_RUN:
-        result.agentId = metadata.agentId;
-        result.availableTools = metadata.availableTools;
-        result.maxSteps = metadata.maxSteps;
-        result.currentStep = metadata.currentStep;
-        break;
-      case AISpanType.TOOL_CALL:
-        result.toolId = metadata.toolId;
-        result.toolType = metadata.toolType;
-        result.success = metadata.success;
-        break;
-      case AISpanType.MCP_TOOL_CALL:
-        result.toolName = metadata.toolId; // Map toolId to toolName for Langfuse
-        result.mcpServer = metadata.mcpServer;
-        result.serverVersion = metadata.serverVersion;
-        result.success = metadata.success;
-        break;
-      case AISpanType.WORKFLOW_RUN:
-        result.workflowId = metadata.workflowId;
-        result.status = metadata.status;
-        break;
-      case AISpanType.WORKFLOW_STEP:
-        result.stepId = metadata.stepId;
-        result.status = metadata.status;
-        break;
-    }
-
-    return result;
   }
 
   private sanitizeMetadata(metadata: Record<string, any> | undefined): Record<string, any> {

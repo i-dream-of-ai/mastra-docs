@@ -32,23 +32,18 @@ export enum AISpanType {
 }
 
 // ============================================================================
-// Type-Specific Metadata Interfaces
+// Type-Specific Attributes Interfaces
 // ============================================================================
 
 /**
- * Base metadata that all spans can have
+ * Base attributes that all spans can have
  */
-export interface AIBaseMetadata {
-  /** Custom tags for categorization */
-  tags?: string[];
-  /** User-defined attributes */
-  attributes?: Record<string, any>;
-}
+export interface AIBaseAttributes {}
 
 /**
- * Agent Run metadata
+ * Agent Run attributes
  */
-export interface AgentRunMetadata extends AIBaseMetadata {
+export interface AgentRunAttributes extends AIBaseAttributes {
   /** Agent identifier */
   agentId: string;
   /** Agent Instructions **/
@@ -62,9 +57,9 @@ export interface AgentRunMetadata extends AIBaseMetadata {
 }
 
 /**
- * LLM Generation metadata
+ * LLM Generation attributes
  */
-export interface LLMGenerationMetadata extends AIBaseMetadata {
+export interface LLMGenerationAttributes extends AIBaseAttributes {
   /** Model name (e.g., 'gpt-4', 'claude-3') */
   model?: string;
   /** Model provider (e.g., 'openai', 'anthropic') */
@@ -93,17 +88,17 @@ export interface LLMGenerationMetadata extends AIBaseMetadata {
 }
 
 /**
- * Tool Call metadata
+ * Tool Call attributes
  */
-export interface ToolCallMetadata extends AIBaseMetadata {
+export interface ToolCallAttributes extends AIBaseAttributes {
   toolId?: string;
   success?: boolean;
 }
 
 /**
- * MCP Tool Call metadata
+ * MCP Tool Call attributes
  */
-export interface MCPToolCallMetadata extends AIBaseMetadata {
+export interface MCPToolCallAttributes extends AIBaseAttributes {
   /** Id of the MCP tool/function */
   toolId: string;
   /** MCP server identifier */
@@ -115,9 +110,9 @@ export interface MCPToolCallMetadata extends AIBaseMetadata {
 }
 
 /**
- * Workflow Run metadata
+ * Workflow Run attributes
  */
-export interface WorkflowRunMetadata extends AIBaseMetadata {
+export interface WorkflowRunAttributes extends AIBaseAttributes {
   /** Workflow identifier */
   workflowId: string;
   /** Workflow status */
@@ -125,9 +120,9 @@ export interface WorkflowRunMetadata extends AIBaseMetadata {
 }
 
 /**
- * Workflow Step metadata
+ * Workflow Step attributes
  */
-export interface WorkflowStepMetadata extends AIBaseMetadata {
+export interface WorkflowStepAttributes extends AIBaseAttributes {
   /** Step identifier */
   stepId: string;
   /** Step status */
@@ -135,22 +130,22 @@ export interface WorkflowStepMetadata extends AIBaseMetadata {
 }
 
 /**
- * AI-specific span types mapped to their metadata
+ * AI-specific span types mapped to their attributes
  */
 export interface AISpanTypeMap {
-  [AISpanType.AGENT_RUN]: AgentRunMetadata;
-  [AISpanType.WORKFLOW_RUN]: WorkflowRunMetadata;
-  [AISpanType.LLM_GENERATION]: LLMGenerationMetadata;
-  [AISpanType.TOOL_CALL]: ToolCallMetadata;
-  [AISpanType.MCP_TOOL_CALL]: MCPToolCallMetadata;
-  [AISpanType.WORKFLOW_STEP]: WorkflowStepMetadata;
-  [AISpanType.GENERIC]: AIBaseMetadata;
+  [AISpanType.AGENT_RUN]: AgentRunAttributes;
+  [AISpanType.WORKFLOW_RUN]: WorkflowRunAttributes;
+  [AISpanType.LLM_GENERATION]: LLMGenerationAttributes;
+  [AISpanType.TOOL_CALL]: ToolCallAttributes;
+  [AISpanType.MCP_TOOL_CALL]: MCPToolCallAttributes;
+  [AISpanType.WORKFLOW_STEP]: WorkflowStepAttributes;
+  [AISpanType.GENERIC]: AIBaseAttributes;
 }
 
 /**
  * Union type for cases that need to handle any span type
  */
-export type AnyAISpanMetadata = AISpanTypeMap[keyof AISpanTypeMap];
+export type AnyAISpanAttributes = AISpanTypeMap[keyof AISpanTypeMap];
 
 // ============================================================================
 // Span Interfaces
@@ -170,8 +165,8 @@ export interface AISpan<TType extends AISpanType> {
   startTime: Date;
   /** When span ended */
   endTime?: Date;
-  /** AI-specific metadata - strongly typed based on span type */
-  metadata: AISpanTypeMap[TType];
+  /** AI-specific attributes - strongly typed based on span type */
+  attributes: AISpanTypeMap[TType];
   /** Parent span reference (undefined for root spans) */
   parent?: AnyAISpan;
   /** The top-level span - can be any type */
@@ -195,25 +190,27 @@ export interface AISpan<TType extends AISpanType> {
     details?: Record<string, any>;
   };
 
+  /** User-defined metadata */
+  metadata?: Record<string, any>;
+
   // Methods for span lifecycle
   /** End the span */
-  end(options?: {
-    output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
-  }): void;
+  end(options?: { output?: any; attributes?: Partial<AISpanTypeMap[TType]>; metadata?: Record<string, any> }): void;
 
   /** Record an error for the span, optionally end the span as well */
   error(options: {
     error: MastraError | Error;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
     endSpan?: boolean;
   }): void;
 
-  /** Update span metadata */
+  /** Update span attributes */
   update(options?: {
     input?: any;
     output?: any;
-    metadata?: Partial<AISpanTypeMap[TType]>;
+    attributes?: Partial<AISpanTypeMap[TType]>;
+    metadata?: Record<string, any>;
   }): void;
 
   /** Create child span - can be any span type independent of parent */
@@ -221,7 +218,8 @@ export interface AISpan<TType extends AISpanType> {
     type: TChildType;
     name: string;
     input?: any;
-    metadata?: AISpanTypeMap[TChildType];
+    attributes?: AISpanTypeMap[TChildType];
+    metadata?: Record<string, any>;
   }): AISpan<TChildType>;
 
   /** Returns `TRUE` if the span is the root span of a trace */
@@ -243,8 +241,10 @@ export interface AISpanOptions<TType extends AISpanType> {
   type: TType;
   /** Input data */
   input?: any;
+  /** Span attributes */
+  attributes?: AISpanTypeMap[TType];
   /** Span metadata */
-  metadata?: AISpanTypeMap[TType];
+  metadata?: Record<string, any>;
   /** Parent span */
   parent?: AnyAISpan;
 }
@@ -268,7 +268,7 @@ export enum SamplingStrategyType {
  */
 export interface AITraceContext {
   runtimeContext?: RuntimeContext;
-  attributes?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 /**
