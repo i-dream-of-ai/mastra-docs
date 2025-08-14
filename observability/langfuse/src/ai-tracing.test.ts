@@ -54,6 +54,7 @@ describe('LangfuseExporter', () => {
     mockTrace = {
       generation: vi.fn().mockReturnValue(mockGeneration),
       span: vi.fn().mockReturnValue(mockSpan),
+      update: vi.fn(),
     };
 
     // Set up circular reference
@@ -158,11 +159,11 @@ describe('LangfuseExporter', () => {
         name: 'gpt-4-call',
         type: AISpanType.LLM_GENERATION,
         isRoot: true,
+        input: { messages: [{ role: 'user', content: 'Hello' }] },
+        output: { content: 'Hi there!' },
         metadata: {
           model: 'gpt-4',
           provider: 'openai',
-          input: { messages: [{ role: 'user', content: 'Hello' }] },
-          output: { content: 'Hi there!' },
           usage: {
             promptTokens: 10,
             completionTokens: 5,
@@ -210,8 +211,8 @@ describe('LangfuseExporter', () => {
           provider: 'openai',
           resultType: 'response_generation',
           streaming: false,
+          tags: ['llm'],
         },
-        tags: ['llm'],
       });
     });
 
@@ -259,11 +260,11 @@ describe('LangfuseExporter', () => {
         name: 'calculator-tool',
         type: AISpanType.TOOL_CALL,
         isRoot: true,
+        input: { operation: 'add', a: 2, b: 3 },
+        output: { result: 5 },
         metadata: {
           toolId: 'calculator',
           success: true,
-          input: { operation: 'add', a: 2, b: 3 },
-          output: { result: 5 },
           tags: ['tool', 'math'],
         },
       });
@@ -284,8 +285,8 @@ describe('LangfuseExporter', () => {
           spanType: 'tool_call',
           toolId: 'calculator',
           success: true,
+          tags: ['tool', 'math'],
         },
-        tags: ['tool', 'math'],
       });
     });
   });
@@ -411,8 +412,8 @@ describe('LangfuseExporter', () => {
       llmSpan.metadata = {
         ...llmSpan.metadata,
         usage: { totalTokens: 150 },
-        output: { content: 'Updated response' },
       } as LLMGenerationMetadata;
+      llmSpan.output = { content: 'Updated response' };
 
       await exporter.exportEvent({
         type: AITracingEventType.SPAN_UPDATED,
@@ -452,8 +453,8 @@ describe('LangfuseExporter', () => {
       toolSpan.metadata = {
         ...toolSpan.metadata,
         success: true,
-        output: { result: 42 },
       } as ToolCallMetadata;
+      toolSpan.output = { result: 42 };
 
       await exporter.exportEvent({
         type: AITracingEventType.SPAN_UPDATED,
@@ -512,11 +513,11 @@ describe('LangfuseExporter', () => {
         isRoot: true,
         metadata: {
           toolId: 'failing-tool',
-          error: {
-            message: 'Tool execution failed',
-            id: 'TOOL_ERROR',
-            category: 'EXECUTION',
-          },
+        },
+        errorInfo: {
+          message: 'Tool execution failed',
+          id: 'TOOL_ERROR',
+          category: 'EXECUTION',
         },
       });
 
@@ -561,7 +562,7 @@ describe('LangfuseExporter', () => {
 
       // Verify internal maps have references
       expect((exporter as any).traceMap.has('root-span')).toBe(true);
-      expect((exporter as any).spanMap.has('root-span')).toBe(true);
+      expect((exporter as any).traceMap.get('root-span').spans.has('root-span')).toBe(true);
 
       // End span
       await exporter.exportEvent({
@@ -569,9 +570,8 @@ describe('LangfuseExporter', () => {
         span: rootSpan,
       });
 
-      // Verify references are cleaned up
+      // Verify references are cleaned up (root span ending cleans up entire trace)
       expect((exporter as any).traceMap.has('root-span')).toBe(false);
-      expect((exporter as any).spanMap.has('root-span')).toBe(false);
     });
   });
 
@@ -643,7 +643,7 @@ describe('LangfuseExporter', () => {
 
       // Verify maps have data
       expect((exporter as any).traceMap.size).toBeGreaterThan(0);
-      expect((exporter as any).spanMap.size).toBeGreaterThan(0);
+      expect((exporter as any).traceMap.get('test-span').spans.size).toBeGreaterThan(0);
 
       // Shutdown
       await exporter.shutdown();
@@ -653,7 +653,6 @@ describe('LangfuseExporter', () => {
 
       // Verify maps were cleared
       expect((exporter as any).traceMap.size).toBe(0);
-      expect((exporter as any).spanMap.size).toBe(0);
     });
   });
 });
@@ -665,18 +664,27 @@ function createMockSpan({
   type,
   isRoot,
   metadata,
+  input,
+  output,
+  errorInfo,
 }: {
   id: string;
   name: string;
   type: AISpanType;
   isRoot: boolean;
   metadata: any;
+  input?: any;
+  output?: any;
+  errorInfo?: any;
 }): AnyAISpan {
   const mockSpan = {
     id,
     name,
     type,
     metadata,
+    input,
+    output,
+    errorInfo,
     startTime: new Date(),
     endTime: undefined,
     traceId: isRoot ? id : 'parent-trace-id',

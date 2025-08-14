@@ -33,10 +33,13 @@ export class LangfuseExporter implements AITracingExporter {
   name = 'langfuse';
   private client: Langfuse;
   private realtime: boolean;
-  private traceMap = new Map<string, {
-    trace: LangfuseTraceClient;  // Langfuse trace object
-    spans: Map<string, LangfuseSpanClient | LangfuseGenerationClient>;  // Maps span.id to Langfuse span/generation
-  }>();
+  private traceMap = new Map<
+    string,
+    {
+      trace: LangfuseTraceClient; // Langfuse trace object
+      spans: Map<string, LangfuseSpanClient | LangfuseGenerationClient>; // Maps span.id to Langfuse span/generation
+    }
+  >();
 
   constructor(config: LangfuseExporterConfig) {
     this.realtime = config.realtime ?? false;
@@ -46,7 +49,7 @@ export class LangfuseExporter implements AITracingExporter {
       baseUrl: config.baseUrl,
       ...config.options,
     });
-    console.log("created langfuse client: %s", this.client);
+    console.log('created langfuse client: %s', this.client);
   }
 
   async exportEvent(event: AITracingEvent): Promise<void> {
@@ -117,7 +120,7 @@ export class LangfuseExporter implements AITracingExporter {
     langfuseObject.end(endData);
 
     if (span.isRootSpan) {
-      traceData.trace.update({output: span.output})
+      traceData.trace.update({ output: span.output });
       this.traceMap.delete(span.trace.id);
     }
   }
@@ -128,40 +131,24 @@ export class LangfuseExporter implements AITracingExporter {
 
     const metadata = span.metadata as LLMGenerationMetadata;
 
-    const parent = span.parent && traceData.spans.has(span.parent.id)
-      ? traceData.spans.get(span.parent.id)!
-      : traceData.trace;
+    const parent =
+      span.parent && traceData.spans.has(span.parent.id) ? traceData.spans.get(span.parent.id)! : traceData.trace;
 
     const generation = parent.generation({
       id: span.id,
       name: span.name,
       model: metadata.model,
-      modelParameters: metadata.parameters
-        ? {
-            temperature: metadata.parameters.temperature,
-            maxTokens: metadata.parameters.maxTokens,
-            topP: metadata.parameters.topP,
-            frequencyPenalty: metadata.parameters.frequencyPenalty,
-            presencePenalty: metadata.parameters.presencePenalty,
-            stop: metadata.parameters.stop,
-          }
-        : undefined,
+      modelParameters: metadata.parameters,
       input: span.input,
       output: span.output,
-      usage: metadata.usage
-        ? {
-            promptTokens: metadata.usage.promptTokens,
-            completionTokens: metadata.usage.completionTokens,
-            totalTokens: metadata.usage.totalTokens,
-          }
-        : undefined,
+      usage: metadata.usage,
       metadata: {
         provider: metadata.provider,
         resultType: metadata.resultType,
         streaming: metadata.streaming,
+        tags: metadata.tags,
         ...this.sanitizeMetadata(metadata.attributes),
       },
-      tags: metadata.tags,
     });
 
     traceData.spans.set(span.id, generation);
@@ -171,9 +158,8 @@ export class LangfuseExporter implements AITracingExporter {
     const traceData = this.traceMap.get(span.trace.id);
     if (!traceData) return;
 
-    const parent = span.parent && traceData.spans.has(span.parent.id)
-      ? traceData.spans.get(span.parent.id)!
-      : traceData.trace;
+    const parent =
+      span.parent && traceData.spans.has(span.parent.id) ? traceData.spans.get(span.parent.id)! : traceData.trace;
 
     const langfuseSpan = parent.span({
       id: span.id,
@@ -183,10 +169,10 @@ export class LangfuseExporter implements AITracingExporter {
 
       metadata: {
         spanType: span.type,
+        tags: span.metadata.tags,
         ...this.sanitizeMetadata(span.metadata.attributes),
         ...this.extractTypeSpecificMetadata(span),
       },
-      tags: span.metadata.tags,
     });
 
     traceData.spans.set(span.id, langfuseSpan);
