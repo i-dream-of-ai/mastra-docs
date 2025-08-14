@@ -634,6 +634,15 @@ export class DefaultExecutionEngine extends ExecutionEngine {
       ...(resumeTime ? { resumedAt: resumeTime } : {}),
     };
 
+    const stepAISpan = executionContext.aiSpan?.createChildSpan({
+      name: `workflow.${workflowId}.step.${step.id}`,
+      type: AISpanType.WORKFLOW_STEP,
+      input: prevOutput,
+      attributes: {
+        stepId: step.id,
+      },
+    });
+
     if (!skipEmits) {
       await emitter.emit('watch', {
         type: 'watch',
@@ -785,6 +794,14 @@ export class DefaultExecutionEngine extends ExecutionEngine {
               );
         this.logger.trackException(error);
         this.logger.error(`Error executing step ${step.id}: ` + error?.stack);
+
+        stepAISpan?.error({
+          error,
+          attributes: {
+            status: 'failed',
+          },
+        });
+
         execResults = {
           status: 'failed',
           error: error?.stack,
@@ -847,6 +864,15 @@ export class DefaultExecutionEngine extends ExecutionEngine {
           },
         });
       }
+    }
+
+    if (execResults.status != 'failed') {
+      stepAISpan?.end({
+        output: execResults.output,
+        attributes: {
+          status: execResults.status,
+        },
+      });
     }
 
     return { ...stepInfo, ...execResults };
