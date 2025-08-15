@@ -895,7 +895,7 @@ export class Agent<
       );
       for (const [toolName, tool] of Object.entries(memoryTools)) {
         const toolObj = tool;
-        const options : ToolOptions = {
+        const options: ToolOptions = {
           name: toolName,
           runId,
           threadId,
@@ -1106,7 +1106,7 @@ export class Agent<
       for (const toolset of toolsFromToolsets) {
         for (const [toolName, tool] of Object.entries(toolset)) {
           const toolObj = tool;
-          const options : ToolOptions = {
+          const options: ToolOptions = {
             name: toolName,
             runId,
             threadId,
@@ -1155,7 +1155,7 @@ export class Agent<
       });
       for (const [toolName, tool] of clientToolsForInput) {
         const { execute, ...rest } = tool;
-        const options : ToolOptions = {
+        const options: ToolOptions = {
           name: toolName,
           runId,
           threadId,
@@ -1200,13 +1200,13 @@ export class Agent<
             execute: async (args: any) => {
               const toolAISpan = agentAISpan?.createChildSpan({
                 type: AISpanType.TOOL_CALL,
-                name: `workflow_tool.${workflowName}`,
+                name: `create workflow tool: '${workflowName}'`,
                 input: args,
                 attributes: {
                   toolId: workflowName,
                   toolType: 'workflow',
-                }
-              })
+                },
+              });
 
               try {
                 this.logger.debug(`[Agent:${this.name}] - Executing workflow as tool ${workflowName}`, {
@@ -1225,7 +1225,7 @@ export class Agent<
                   runtimeContext,
                   parentAISpan: toolAISpan,
                 });
-                toolAISpan?.end({ output: result})
+                toolAISpan?.end({ output: result });
                 return result;
               } catch (err) {
                 const error = new MastraError(
@@ -1245,7 +1245,7 @@ export class Agent<
                 );
                 this.logger.trackException(error);
                 this.logger.error(error.toString());
-                toolAISpan?.error({error})
+                toolAISpan?.error({ error });
                 throw error;
               }
             },
@@ -1455,20 +1455,20 @@ export class Agent<
         if (parentAISpan) {
           agentAISpan = parentAISpan.createChildSpan({
             type: AISpanType.AGENT_RUN,
-            name: `agent-${this.id}`,
+            name: `agent run: '${this.id}'`,
             attributes: {
               agentId: this.id,
               instructions,
               availableTools: [
                 ...(toolsets ? Object.keys(toolsets) : []),
                 ...(clientTools ? Object.keys(clientTools) : []),
-              ]
+              ],
             },
             metadata: {
               runId,
               resourceId,
               threadId: thread ? thread.id : undefined,
-            }
+            },
           });
         } else {
           const aiTracing = getSelectedAITracing({
@@ -1477,20 +1477,20 @@ export class Agent<
           if (aiTracing) {
             agentAISpan = aiTracing.startSpan({
               type: AISpanType.AGENT_RUN,
-              name: `agent-${this.id}`,
+              name: `agent run: '${this.id}'`,
               attributes: {
                 agentId: this.id,
                 instructions,
                 availableTools: [
                   ...(toolsets ? Object.keys(toolsets) : []),
                   ...(clientTools ? Object.keys(clientTools) : []),
-                ]
+                ],
               },
               metadata: {
                 runId,
                 resourceId,
                 threadId: thread ? thread.id : undefined,
-              }
+              },
             });
           }
         }
@@ -1575,7 +1575,7 @@ export class Agent<
           });
           this.logger.trackException(mastraError);
           this.logger.error(mastraError.toString());
-          agentAISpan?.error({error: mastraError})
+          agentAISpan?.error({ error: mastraError });
           throw mastraError;
         }
         const store = memory.constructor.name;
@@ -1779,8 +1779,8 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
             usage: result?.usage,
             toolResults: result?.toolResults,
             toolCalls: result?.toolCalls,
-          }
-        })
+          },
+        });
         this.logger.debug(`[Agent:${this.name}] - Post processing LLM response`, {
           runId,
           result: resToLog,
@@ -2015,7 +2015,8 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
               experimental_output?: never;
             },
         'runId'
-      > & { runId: string } & TripwireProperties & AgentAISpanProperties
+      > & { runId: string } & TripwireProperties &
+        AgentAISpanProperties
     >;
     after: (args: {
       result: GenerateReturn<any, Output, ExperimentalOutput>;
@@ -2042,7 +2043,8 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
               experimental_output?: never;
             },
         'runId'
-      > & { runId: string } & TripwireProperties & AgentAISpanProperties
+      > & { runId: string } & TripwireProperties &
+        AgentAISpanProperties
     >;
     after: (args: {
       result: OriginalStreamTextOnFinishEventArg<any> | OriginalStreamObjectOnFinishEventArg<ExperimentalOutput>;
@@ -2072,7 +2074,8 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                   experimental_output?: never;
                 },
             'runId'
-          > & { runId: string } & TripwireProperties & AgentAISpanProperties
+          > & { runId: string } & TripwireProperties &
+            AgentAISpanProperties
         >)
       | (() => Promise<
           Omit<
@@ -2083,10 +2086,16 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                   experimental_output?: never;
                 },
             'runId'
-          > & { runId: string } & TripwireProperties & AgentAISpanProperties
+          > & { runId: string } & TripwireProperties &
+            AgentAISpanProperties
         >);
     after:
-      | ((args: { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string; structuredOutput?: boolean; agentAISpan?: AISpan<AISpanType.AGENT_RUN> }) => Promise<void>)
+      | ((args: {
+          result: GenerateReturn<any, Output, ExperimentalOutput>;
+          outputText: string;
+          structuredOutput?: boolean;
+          agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
+        }) => Promise<void>)
       | ((args: {
           result: OriginalStreamTextOnFinishEventArg<any> | OriginalStreamObjectOnFinishEventArg<ExperimentalOutput>;
           outputText: string;
@@ -2241,7 +2250,12 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         structuredOutput = false,
         agentAISpan,
       }:
-        | { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string; structuredOutput?: boolean; agentAISpan?: AISpan<AISpanType.AGENT_RUN> }
+        | {
+            result: GenerateReturn<any, Output, ExperimentalOutput>;
+            outputText: string;
+            structuredOutput?: boolean;
+            agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
+          }
         | {
             result: StreamReturn<any, Output, ExperimentalOutput>;
             outputText: string;
@@ -2296,7 +2310,6 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     const { llm, before, after } = await this.prepareLLMOptions(messages, mergedGenerateOptions);
     const beforeResult = await before();
-    const agentAISpan = beforeResult.agentAISpan;
 
     // Check for tripwire and return early if triggered
     if (beforeResult.tripwire) {
@@ -2330,11 +2343,12 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         : GenerateObjectResult<OUTPUT>;
     }
 
-    const { experimental_output, output, aiSpan, ...llmOptions } = beforeResult;
+    const { experimental_output, output, agentAISpan, ...llmOptions } = beforeResult;
 
     if (!output || experimental_output) {
       const result = await llm.__text({
         ...llmOptions,
+        agentAISpan,
         experimental_output,
       });
 
@@ -2353,6 +2367,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     const result = await llm.__textObject<NonNullable<OUTPUT>>({
       ...llmOptions,
+      agentAISpan,
       structuredOutput: output as NonNullable<OUTPUT>,
     });
 
@@ -2364,7 +2379,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         : GenerateObjectResult<OUTPUT>,
       outputText,
       structuredOutput: true,
-      agentAISpan: llmOptions.agentAISpan,
+      agentAISpan,
     });
 
     return result as unknown as OUTPUT extends undefined
@@ -2425,7 +2440,6 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     const { llm, before, after } = await this.prepareLLMOptions(messages, mergedStreamOptions);
     const beforeResult = await before();
-    const agentAISpan = beforeResult.agentAISpan;
 
     // Check for tripwire and return early if triggered
     if (beforeResult.tripwire) {
@@ -2487,7 +2501,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         | StreamObjectResult<any, OUTPUT extends ZodSchema ? z.infer<OUTPUT> : unknown, any>;
     }
 
-    const { onFinish, runId, output, experimental_output, ...llmOptions } = beforeResult;
+    const { onFinish, runId, output, experimental_output, agentAISpan, ...llmOptions } = beforeResult;
 
     if (!output || experimental_output) {
       this.logger.debug(`Starting agent ${this.name} llm stream call`, {
@@ -2496,6 +2510,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
       const streamResult = llm.__stream({
         ...llmOptions,
+        agentAISpan,
         onFinish: async result => {
           try {
             const outputText = result.text;
@@ -2527,6 +2542,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     return llm.__streamObject({
       ...llmOptions,
+      agentAISpan,
       onFinish: async result => {
         try {
           const outputText = JSON.stringify(result.object);
@@ -2602,6 +2618,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         if (output) {
           const streamResult = llm.__streamObject({
             ...llmOptions,
+            agentAISpan,
             onFinish: async result => {
               onResult(result.object as ResolvedOutput);
               try {
@@ -2629,6 +2646,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         } else {
           const streamResult = llm.__stream({
             ...llmOptions,
+            agentAISpan,
             onFinish: async result => {
               onResult(result.text as ResolvedOutput);
               try {

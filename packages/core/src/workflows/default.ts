@@ -11,7 +11,7 @@ import { ExecutionEngine } from './execution-engine';
 import type { ExecuteFunction, Step } from './step';
 import type { Emitter, StepFailure, StepResult, StepSuccess } from './types';
 import type { DefaultEngineType, SerializedStepFlowEntry, StepFlowEntry } from './workflow';
-import { AISpanType, getSelectedAITracing, type AISpan, type AnyAISpan } from '../ai-tracing';
+import { AISpanType, getSelectedAITracing, type AISpan, type AnyAISpan, type AITracingContext } from '../ai-tracing';
 
 export type ExecutionContext = {
   workflowId: string;
@@ -176,7 +176,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     if (parentAISpan) {
       aiSpan = parentAISpan.createChildSpan({
         type: AISpanType.WORKFLOW_RUN,
-        name: `workflow-${workflowId}`,
+        name: `workflow run: '${workflowId}'`,
         input,
         attributes: {
           workflowId,
@@ -189,7 +189,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
       if (aiTracing) {
         aiSpan = aiTracing.startSpan({
           type: AISpanType.WORKFLOW_RUN,
-          name: `workflow-${workflowId}`,
+          name: `workflow run: '${workflowId}'`,
           input,
           attributes: {
             workflowId,
@@ -633,7 +633,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     };
 
     const stepAISpan = executionContext.aiSpan?.createChildSpan({
-      name: `workflow.${workflowId}.step.${step.id}`,
+      name: `workflow step: '${step.id}'`,
       type: AISpanType.WORKFLOW_STEP,
       input: prevOutput,
       attributes: {
@@ -678,17 +678,27 @@ export class DefaultExecutionEngine extends ExecutionEngine {
 
     const _runStep = (step: Step<any, any, any, any>, spanName: string, attributes?: Record<string, string>) => {
       return async (data: any) => {
+        const aiTracingContext: AITracingContext = {
+          parentAISpan: stepAISpan,
+          metadata: {},
+        };
+
+        const enhancedData = {
+          ...data,
+          aiTracingContext,
+        };
+
         const telemetry = this.mastra?.getTelemetry();
         const span = executionContext.executionSpan;
         if (!telemetry || !span) {
-          return step.execute(data);
+          return step.execute(enhancedData);
         }
 
         return otlpContext.with(trace.setSpan(otlpContext.active(), span), async () => {
           return telemetry.traceMethod(step.execute.bind(step), {
             spanName,
             attributes,
-          })(data);
+          })(enhancedData);
         });
       };
     };

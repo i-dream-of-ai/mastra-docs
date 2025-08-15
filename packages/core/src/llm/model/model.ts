@@ -7,7 +7,14 @@ import {
   OpenAIReasoningSchemaCompatLayer,
   OpenAISchemaCompatLayer,
 } from '@mastra/schema-compat';
-import type { CoreMessage, LanguageModel, Schema, StreamObjectOnFinishCallback, StreamTextOnFinishCallback, ToolExecutionOptions } from 'ai';
+import type {
+  CoreMessage,
+  LanguageModel,
+  Schema,
+  StreamObjectOnFinishCallback,
+  StreamTextOnFinishCallback,
+  ToolExecutionOptions,
+} from 'ai';
 import { generateObject, generateText, jsonSchema, Output, streamObject, streamText } from 'ai';
 import type { JSONSchema7 } from 'json-schema';
 import type { ZodSchema } from 'zod';
@@ -143,14 +150,14 @@ export class MastraLLMV1 extends MastraBase {
   //   };
   // }
 
-  private _wrapModel(model: LanguageModel, aiSpan?: AnyAISpan): LanguageModel {
-    if (!aiSpan) {
+  private _wrapModel(model: LanguageModel, agentAISpan?: AnyAISpan): LanguageModel {
+    if (!agentAISpan) {
       return model;
     }
 
     const wrappedDoGenerate = async (options: any) => {
-      const llmSpan = aiSpan?.createChildSpan({
-        name: `${model.modelId}_generate`,
+      const llmSpan = agentAISpan?.createChildSpan({
+        name: `llm generate: '${model.modelId}'`,
         type: AISpanType.LLM_GENERATION,
         input: options.prompt,
         attributes: {
@@ -169,7 +176,7 @@ export class MastraLLMV1 extends MastraBase {
         metadata: {
           headers: options.headers ? options.headers : undefined,
           mode: options.mode,
-        }
+        },
       });
 
       try {
@@ -178,22 +185,24 @@ export class MastraLLMV1 extends MastraBase {
         llmSpan.end({
           output: result.response,
           attributes: {
-            usage: result.usage ? {
-              promptTokens: result.usage.promptTokens,
-              completionTokens: result.usage.completionTokens,
-            } : undefined,
-          }
+            usage: result.usage
+              ? {
+                  promptTokens: result.usage.promptTokens,
+                  completionTokens: result.usage.completionTokens,
+                }
+              : undefined,
+          },
         });
         return result;
       } catch (error) {
-        llmSpan.error({error: error as Error});
+        llmSpan.error({ error: error as Error });
         throw error;
       }
     };
 
     const wrappedDoStream = async (options: any) => {
-      const llmSpan = aiSpan?.createChildSpan({
-        name: `${model.modelId}_stream`,
+      const llmSpan = agentAISpan?.createChildSpan({
+        name: `llm stream: '${model.modelId}'`,
         type: AISpanType.LLM_GENERATION,
         input: options.prompt,
         attributes: {
@@ -212,7 +221,7 @@ export class MastraLLMV1 extends MastraBase {
         metadata: {
           headers: options.headers ? options.headers : undefined,
           mode: options.mode,
-        }
+        },
       });
 
       try {
@@ -242,15 +251,17 @@ export class MastraLLMV1 extends MastraBase {
               llmSpan.end({
                 output: finalResponse,
                 attributes: {
-                  usage: finalUsage ? {
-                    promptTokens: finalUsage.promptTokens,
-                    completionTokens: finalUsage.completionTokens,
-                    totalTokens: finalUsage.totalTokens,
-                  } : undefined,
-                }
+                  usage: finalUsage
+                    ? {
+                        promptTokens: finalUsage.promptTokens,
+                        completionTokens: finalUsage.completionTokens,
+                        totalTokens: finalUsage.totalTokens,
+                      }
+                    : undefined,
+                },
               });
-            }
-          })
+            },
+          }),
         );
 
         return {
@@ -258,7 +269,7 @@ export class MastraLLMV1 extends MastraBase {
           stream: wrappedStream,
         };
       } catch (error) {
-        llmSpan.error({error: error as Error});
+        llmSpan.error({ error: error as Error });
         throw error;
       }
     };
@@ -283,7 +294,7 @@ export class MastraLLMV1 extends MastraBase {
     threadId,
     resourceId,
     runtimeContext,
-    aiSpan,
+    agentAISpan,
     ...rest
   }: GenerateTextWithMessagesArgs<Tools, Z>): Promise<GenerateTextResult<Tools, Z>> {
     const model = this.#model;
@@ -296,27 +307,6 @@ export class MastraLLMV1 extends MastraBase {
       resourceId,
       tools: Object.keys(tools),
     });
-
-    // const llmAISpan = aiSpan?.createChildSpan({
-    //   type: AISpanType.LLM_GENERATION,
-    //   name: `${model.modelId}.text`,
-    //   input: messages,
-    //   attributes: {
-    //     model: model.modelId,
-    //     provider: model.provider,
-    //     parameters: {
-    //       temperature
-    //     }
-    //   },
-    //   metadata: {
-    //     tools: Object.keys(tools),
-    //     toolChoice,
-    //     maxSteps,
-    //     runId,
-    //     threadId,
-    //     resourceId,
-    //   }
-    // })
 
     let schema: z.ZodType<inferOutput<Z>> | Schema<inferOutput<Z>> | undefined = undefined;
 
@@ -337,7 +327,7 @@ export class MastraLLMV1 extends MastraBase {
     const argsForExecute: OriginalGenerateTextOptions<Tools, Z> = {
       ...rest,
       messages,
-      model: this._wrapModel(model, aiSpan),
+      model: this._wrapModel(model, agentAISpan),
       temperature,
       tools: {
         ...(tools as Tools),
@@ -434,7 +424,7 @@ export class MastraLLMV1 extends MastraBase {
     threadId,
     resourceId,
     runtimeContext,
-    aiSpan,
+    agentAISpan,
     ...rest
   }: GenerateObjectWithMessagesArgs<Z>): Promise<GenerateObjectResult<Z>> {
     const model = this.#model;
@@ -453,7 +443,7 @@ export class MastraLLMV1 extends MastraBase {
       const argsForExecute: OriginalGenerateObjectOptions<Z> = {
         ...rest,
         messages,
-        model: this._wrapModel(model, aiSpan),
+        model: this._wrapModel(model, agentAISpan),
         // @ts-expect-error - output in our implementation can only be object or array
         output,
         schema: processedSchema as Schema<Z>,
@@ -522,7 +512,7 @@ export class MastraLLMV1 extends MastraBase {
     threadId,
     resourceId,
     runtimeContext,
-    aiSpan,
+    agentAISpan,
     ...rest
   }: StreamTextWithMessagesArgs<Tools, Z>): StreamTextResult<Tools, Z> {
     const model = this.#model;
@@ -551,7 +541,7 @@ export class MastraLLMV1 extends MastraBase {
     }
 
     const argsForExecute: OriginalStreamTextOptions<Tools, Z> = {
-      model: this._wrapModel(model, aiSpan),
+      model: this._wrapModel(model, agentAISpan),
       temperature,
       tools: {
         ...(tools as Tools),
@@ -684,7 +674,7 @@ export class MastraLLMV1 extends MastraBase {
     onFinish,
     structuredOutput,
     telemetry,
-    aiSpan,
+    agentAISpan,
     ...rest
   }: StreamObjectWithMessagesArgs<T>): StreamObjectResult<T> {
     const model = this.#model;
@@ -704,7 +694,7 @@ export class MastraLLMV1 extends MastraBase {
 
       const argsForExecute: OriginalStreamObjectOptions<T> = {
         ...rest,
-        model: this._wrapModel(model, aiSpan),
+        model: this._wrapModel(model, agentAISpan),
         onFinish: async props => {
           try {
             // @ts-expect-error - onFinish is not inferred correctly

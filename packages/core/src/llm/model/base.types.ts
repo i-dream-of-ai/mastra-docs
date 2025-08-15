@@ -33,7 +33,7 @@ type MastraCustomLLMOptions = {
   resourceId?: string;
   runtimeContext: RuntimeContext;
   runId?: string;
-  aiSpan?: AnyAISpan;
+  agentAISpan?: AnyAISpan;
 };
 type MastraCustomLLMOptionsKeys = keyof MastraCustomLLMOptions;
 

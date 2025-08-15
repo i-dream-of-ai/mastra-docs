@@ -109,7 +109,7 @@ type MastraCustomLLMOptions<Z extends ZodSchema | JSONSchema7 | undefined = unde
   threadId?: string;
   resourceId?: string;
   runtimeContext: RuntimeContext;
-  aiSpan?: AnyAISpan;
+  agentAISpan?: AnyAISpan;
 } & Run;
 
 export type LLMTextOptions<Z extends ZodSchema | JSONSchema7 | undefined = undefined> = {
