@@ -161,22 +161,20 @@ export class DefaultExecutionEngine extends ExecutionEngine {
       delay?: number;
     };
     runtimeContext: RuntimeContext;
-    parentSpan?: AnyAISpan;
+    parentAISpan?: AnyAISpan;
     abortController: AbortController;
     writableStream?: WritableStream<ChunkType>;
   }): Promise<TOutput> {
-    const { workflowId, runId, graph, input, resume, retryConfig, runtimeContext, parentSpan } = params;
+    const { workflowId, runId, graph, input, resume, retryConfig, runtimeContext, parentAISpan } = params;
     const { attempts = 0, delay = 0 } = retryConfig ?? {};
     const steps = graph.steps;
 
     //clear runCounts
     this.runCounts.clear();
 
-    console.log('STARTING WORKFLOW');
-
     let aiSpan: AISpan<AISpanType.WORKFLOW_RUN> | undefined;
-    if (parentSpan) {
-      aiSpan = parentSpan.createChildSpan({
+    if (parentAISpan) {
+      aiSpan = parentAISpan.createChildSpan({
         type: AISpanType.WORKFLOW_RUN,
         name: `workflow-${workflowId}`,
         input,

@@ -3,7 +3,7 @@ import type { ReadableStream, WritableStream } from 'stream/web';
 import type { CoreMessage, StreamObjectResult, StreamTextResult, TextPart, Tool, UIMessage } from 'ai';
 import deepEqual from 'fast-deep-equal';
 import type { JSONSchema7 } from 'json-schema';
-import type { ZodSchema, z } from 'zod';
+import { object, type ZodSchema, type z } from 'zod';
 import type { MastraPrimitives, MastraUnion } from '../action';
 import { MastraBase } from '../base';
 import { MastraError, ErrorDomain, ErrorCategory } from '../error';
@@ -37,7 +37,7 @@ import { InstrumentClass } from '../telemetry';
 import { Telemetry } from '../telemetry/telemetry';
 import type { CoreTool } from '../tools/types';
 import type { DynamicArgument } from '../types';
-import { makeCoreTool, createMastraProxy, ensureToolProperties } from '../utils';
+import { makeCoreTool, createMastraProxy, ensureToolProperties, type ToolOptions } from '../utils';
 import type { CompositeVoice } from '../voice';
 import { DefaultVoice } from '../voice';
 import type { Workflow } from '../workflows';
@@ -57,7 +57,9 @@ import type {
   ToolsetsInput,
   ToolsInput,
   AgentMemoryOption,
+  AgentAISpanProperties,
 } from './types';
+import { AISpanType, getSelectedAITracing, type AISpan, type AnyAISpan } from '../ai-tracing';
 export type { ChunkType } from '../stream/types';
 export type { MastraAgentStream } from '../stream/MastraAgentStream';
 export * from './input-processor';
@@ -870,12 +872,14 @@ export class Agent<
     threadId,
     runtimeContext,
     mastraProxy,
+    agentAISpan,
   }: {
     runId?: string;
     resourceId?: string;
     threadId?: string;
     runtimeContext: RuntimeContext;
     mastraProxy?: MastraUnion;
+    agentAISpan?: AnyAISpan;
   }) {
     let convertedMemoryTools: Record<string, CoreTool> = {};
     // Get memory tools if available
@@ -891,7 +895,7 @@ export class Agent<
       );
       for (const [toolName, tool] of Object.entries(memoryTools)) {
         const toolObj = tool;
-        const options = {
+        const options : ToolOptions = {
           name: toolName,
           runId,
           threadId,
@@ -902,6 +906,7 @@ export class Agent<
           agentName: this.name,
           runtimeContext,
           model: typeof this.model === 'function' ? await this.getModel({ runtimeContext }) : this.model,
+          agentAISpan,
         };
         const convertedToCoreTool = makeCoreTool(toolObj, options);
         convertedMemoryTools[toolName] = convertedToCoreTool;
@@ -1014,6 +1019,7 @@ export class Agent<
     threadId,
     mastraProxy,
     writableStream,
+    agentAISpan,
   }: {
     runId?: string;
     resourceId?: string;
@@ -1021,6 +1027,7 @@ export class Agent<
     runtimeContext: RuntimeContext;
     mastraProxy?: MastraUnion;
     writableStream?: WritableStream<ChunkType>;
+    agentAISpan?: AnyAISpan;
   }) {
     let toolsForRequest: Record<string, CoreTool> = {};
 
@@ -1040,7 +1047,7 @@ export class Agent<
           return;
         }
 
-        const options = {
+        const options: ToolOptions = {
           name: k,
           runId,
           threadId,
@@ -1052,6 +1059,7 @@ export class Agent<
           runtimeContext,
           model: typeof this.model === 'function' ? await this.getModel({ runtimeContext }) : this.model,
           writableStream,
+          agentAISpan,
         };
 
         return [k, makeCoreTool(tool, options)];
@@ -1076,6 +1084,7 @@ export class Agent<
     toolsets,
     runtimeContext,
     mastraProxy,
+    agentAISpan,
   }: {
     runId?: string;
     threadId?: string;
@@ -1083,6 +1092,7 @@ export class Agent<
     toolsets: ToolsetsInput;
     runtimeContext: RuntimeContext;
     mastraProxy?: MastraUnion;
+    agentAISpan?: AnyAISpan;
   }) {
     let toolsForRequest: Record<string, CoreTool> = {};
 
@@ -1096,7 +1106,7 @@ export class Agent<
       for (const toolset of toolsFromToolsets) {
         for (const [toolName, tool] of Object.entries(toolset)) {
           const toolObj = tool;
-          const options = {
+          const options : ToolOptions = {
             name: toolName,
             runId,
             threadId,
@@ -1107,6 +1117,7 @@ export class Agent<
             agentName: this.name,
             runtimeContext,
             model: typeof this.model === 'function' ? await this.getModel({ runtimeContext }) : this.model,
+            agentAISpan,
           };
           const convertedToCoreTool = makeCoreTool(toolObj, options, 'toolset');
           toolsForRequest[toolName] = convertedToCoreTool;
@@ -1124,6 +1135,7 @@ export class Agent<
     runtimeContext,
     mastraProxy,
     clientTools,
+    agentAISpan,
   }: {
     runId?: string;
     threadId?: string;
@@ -1131,6 +1143,7 @@ export class Agent<
     runtimeContext: RuntimeContext;
     mastraProxy?: MastraUnion;
     clientTools?: ToolsInput;
+    agentAISpan?: AnyAISpan;
   }) {
     let toolsForRequest: Record<string, CoreTool> = {};
     const memory = await this.getMemory({ runtimeContext });
@@ -1142,7 +1155,7 @@ export class Agent<
       });
       for (const [toolName, tool] of clientToolsForInput) {
         const { execute, ...rest } = tool;
-        const options = {
+        const options : ToolOptions = {
           name: toolName,
           runId,
           threadId,
@@ -1153,6 +1166,7 @@ export class Agent<
           agentName: this.name,
           runtimeContext,
           model: typeof this.model === 'function' ? await this.getModel({ runtimeContext }) : this.model,
+          agentAISpan,
         };
         const convertedToCoreTool = makeCoreTool(rest, options, 'client-tool');
         toolsForRequest[toolName] = convertedToCoreTool;
@@ -1167,11 +1181,13 @@ export class Agent<
     threadId,
     resourceId,
     runtimeContext,
+    agentAISpan,
   }: {
     runId?: string;
     threadId?: string;
     resourceId?: string;
     runtimeContext: RuntimeContext;
+    agentAISpan?: AnyAISpan;
   }) {
     let convertedWorkflowTools: Record<string, CoreTool> = {};
     const workflows = await this.getWorkflows({ runtimeContext });
@@ -1182,6 +1198,16 @@ export class Agent<
             description: workflow.description || `Workflow: ${workflowName}`,
             parameters: workflow.inputSchema || { type: 'object', properties: {} },
             execute: async (args: any) => {
+              const toolAISpan = agentAISpan?.createChildSpan({
+                type: AISpanType.TOOL_CALL,
+                name: `workflow_tool.${workflowName}`,
+                input: args,
+                attributes: {
+                  toolId: workflowName,
+                  toolType: 'workflow',
+                }
+              })
+
               try {
                 this.logger.debug(`[Agent:${this.name}] - Executing workflow as tool ${workflowName}`, {
                   name: workflowName,
@@ -1197,10 +1223,12 @@ export class Agent<
                 const result = await run.start({
                   inputData: args,
                   runtimeContext,
+                  parentAISpan: toolAISpan,
                 });
+                toolAISpan?.end({ output: result})
                 return result;
               } catch (err) {
-                const mastraError = new MastraError(
+                const error = new MastraError(
                   {
                     id: 'AGENT_WORKFLOW_TOOL_EXECUTION_FAILED',
                     domain: ErrorDomain.AGENT,
@@ -1215,9 +1243,10 @@ export class Agent<
                   },
                   err,
                 );
-                this.logger.trackException(mastraError);
-                this.logger.error(mastraError.toString());
-                throw mastraError;
+                this.logger.trackException(error);
+                this.logger.error(error.toString());
+                toolAISpan?.error({error})
+                throw error;
               }
             },
           };
@@ -1238,6 +1267,7 @@ export class Agent<
     runId,
     runtimeContext,
     writableStream,
+    agentAISpan,
   }: {
     toolsets?: ToolsetsInput;
     clientTools?: ToolsInput;
@@ -1246,6 +1276,7 @@ export class Agent<
     runId?: string;
     runtimeContext: RuntimeContext;
     writableStream?: WritableStream<ChunkType>;
+    agentAISpan?: AnyAISpan;
   }): Promise<Record<string, CoreTool>> {
     let mastraProxy = undefined;
     const logger = this.logger;
@@ -1261,6 +1292,7 @@ export class Agent<
       runtimeContext,
       mastraProxy,
       writableStream,
+      agentAISpan,
     });
 
     const memoryTools = await this.getMemoryTools({
@@ -1269,6 +1301,7 @@ export class Agent<
       threadId,
       runtimeContext,
       mastraProxy,
+      agentAISpan,
     });
 
     const toolsetTools = await this.getToolsets({
@@ -1278,6 +1311,7 @@ export class Agent<
       runtimeContext,
       mastraProxy,
       toolsets: toolsets!,
+      agentAISpan,
     });
 
     const clientsideTools = await this.getClientTools({
@@ -1287,6 +1321,7 @@ export class Agent<
       runtimeContext,
       mastraProxy,
       clientTools: clientTools!,
+      agentAISpan,
     });
 
     const workflowTools = await this.getWorkflowTools({
@@ -1294,6 +1329,7 @@ export class Agent<
       resourceId,
       threadId,
       runtimeContext,
+      agentAISpan,
     });
 
     return this.formatTools({
@@ -1393,6 +1429,7 @@ export class Agent<
     runtimeContext,
     saveQueueManager,
     writableStream,
+    parentAISpan,
   }: {
     instructions: string;
     toolsets?: ToolsetsInput;
@@ -1406,11 +1443,56 @@ export class Agent<
     runtimeContext: RuntimeContext;
     saveQueueManager: SaveQueueManager;
     writableStream?: WritableStream<ChunkType>;
+    parentAISpan?: AnyAISpan;
   }) {
     return {
       before: async () => {
         if (process.env.NODE_ENV !== 'test') {
           this.logger.debug(`[Agents:${this.name}] - Starting generation`, { runId });
+        }
+
+        let agentAISpan: AISpan<AISpanType.AGENT_RUN> | undefined;
+        if (parentAISpan) {
+          agentAISpan = parentAISpan.createChildSpan({
+            type: AISpanType.AGENT_RUN,
+            name: `agent-${this.id}`,
+            attributes: {
+              agentId: this.id,
+              instructions,
+              availableTools: [
+                ...(toolsets ? Object.keys(toolsets) : []),
+                ...(clientTools ? Object.keys(clientTools) : []),
+              ]
+            },
+            metadata: {
+              runId,
+              resourceId,
+              threadId: thread ? thread.id : undefined,
+            }
+          });
+        } else {
+          const aiTracing = getSelectedAITracing({
+            runtimeContext: runtimeContext,
+          });
+          if (aiTracing) {
+            agentAISpan = aiTracing.startSpan({
+              type: AISpanType.AGENT_RUN,
+              name: `agent-${this.id}`,
+              attributes: {
+                agentId: this.id,
+                instructions,
+                availableTools: [
+                  ...(toolsets ? Object.keys(toolsets) : []),
+                  ...(clientTools ? Object.keys(clientTools) : []),
+                ]
+              },
+              metadata: {
+                runId,
+                resourceId,
+                threadId: thread ? thread.id : undefined,
+              }
+            });
+          }
         }
 
         const memory = await this.getMemory({ runtimeContext });
@@ -1444,6 +1526,7 @@ export class Agent<
           runId,
           runtimeContext,
           writableStream,
+          agentAISpan,
         });
 
         const messageList = new MessageList({
@@ -1471,6 +1554,7 @@ export class Agent<
             threadExists: false,
             thread: undefined,
             messageList,
+            agentAISpan,
             ...(tripwireTriggered && {
               tripwire: true,
               tripwireReason,
@@ -1491,6 +1575,7 @@ export class Agent<
           });
           this.logger.trackException(mastraError);
           this.logger.error(mastraError.toString());
+          agentAISpan?.error({error: mastraError})
           throw mastraError;
         }
         const store = memory.constructor.name;
@@ -1637,6 +1722,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
           messageList,
           // add old processed messages + new input messages
           messageObjects: processedList,
+          agentAISpan,
           ...(tripwireTriggered && {
             tripwire: true,
             tripwireReason,
@@ -1654,6 +1740,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         messageList,
         threadExists,
         structuredOutput = false,
+        agentAISpan,
       }: {
         runId: string;
         result: Record<string, any>;
@@ -1664,6 +1751,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         messageList: MessageList;
         threadExists: boolean;
         structuredOutput?: boolean;
+        agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
       }) => {
         const resToLog = {
           text: result?.text,
@@ -1682,11 +1770,23 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
             };
           }),
         };
+        agentAISpan?.end({
+          output: {
+            text: result?.text,
+            object: result?.object,
+          },
+          metadata: {
+            usage: result?.usage,
+            toolResults: result?.toolResults,
+            toolCalls: result?.toolCalls,
+          }
+        })
         this.logger.debug(`[Agent:${this.name}] - Post processing LLM response`, {
           runId,
           result: resToLog,
           threadId,
         });
+
         const messageListResponses = new MessageList({
           threadId,
           resourceId,
@@ -1915,12 +2015,13 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
               experimental_output?: never;
             },
         'runId'
-      > & { runId: string } & TripwireProperties
+      > & { runId: string } & TripwireProperties & AgentAISpanProperties
     >;
     after: (args: {
       result: GenerateReturn<any, Output, ExperimentalOutput>;
       outputText: string;
       structuredOutput?: boolean;
+      agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
     }) => Promise<void>;
     llm: MastraLLMV1;
   }>;
@@ -1941,12 +2042,13 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
               experimental_output?: never;
             },
         'runId'
-      > & { runId: string } & TripwireProperties
+      > & { runId: string } & TripwireProperties & AgentAISpanProperties
     >;
     after: (args: {
       result: OriginalStreamTextOnFinishEventArg<any> | OriginalStreamObjectOnFinishEventArg<ExperimentalOutput>;
       outputText: string;
       structuredOutput?: boolean;
+      agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
     }) => Promise<void>;
     llm: MastraLLMV1;
   }>;
@@ -1970,7 +2072,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                   experimental_output?: never;
                 },
             'runId'
-          > & { runId: string } & TripwireProperties
+          > & { runId: string } & TripwireProperties & AgentAISpanProperties
         >)
       | (() => Promise<
           Omit<
@@ -1981,13 +2083,15 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                   experimental_output?: never;
                 },
             'runId'
-          > & { runId: string } & TripwireProperties
+          > & { runId: string } & TripwireProperties & AgentAISpanProperties
         >);
     after:
-      | ((args: { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string }) => Promise<void>)
+      | ((args: { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string; structuredOutput?: boolean; agentAISpan?: AISpan<AISpanType.AGENT_RUN> }) => Promise<void>)
       | ((args: {
           result: OriginalStreamTextOnFinishEventArg<any> | OriginalStreamObjectOnFinishEventArg<ExperimentalOutput>;
           outputText: string;
+          structuredOutput?: boolean;
+          agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
         }) => Promise<void>);
     llm: MastraLLMV1;
   }> {
@@ -2067,6 +2171,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
       runtimeContext,
       saveQueueManager,
       writableStream,
+      parentAISpan: args.aiTracingContext?.parentAISpan,
     });
 
     let messageList: MessageList;
@@ -2077,7 +2182,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
       llm,
       before: async () => {
         const beforeResult = await before();
-        const { messageObjects, convertedTools } = beforeResult;
+        const { messageObjects, convertedTools, agentAISpan } = beforeResult;
         threadExists = beforeResult.threadExists || false;
         messageList = beforeResult.messageList;
         thread = beforeResult.thread;
@@ -2125,6 +2230,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
             tripwireReason: beforeResult.tripwireReason,
           }),
           ...args,
+          agentAISpan,
         } as any;
 
         return result;
@@ -2133,12 +2239,14 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         result,
         outputText,
         structuredOutput = false,
+        agentAISpan,
       }:
-        | { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string; structuredOutput?: boolean }
+        | { result: GenerateReturn<any, Output, ExperimentalOutput>; outputText: string; structuredOutput?: boolean; agentAISpan?: AISpan<AISpanType.AGENT_RUN> }
         | {
             result: StreamReturn<any, Output, ExperimentalOutput>;
             outputText: string;
             structuredOutput?: boolean;
+            agentAISpan?: AISpan<AISpanType.AGENT_RUN>;
           }) => {
         await after({
           result,
@@ -2150,6 +2258,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
           messageList,
           structuredOutput,
           threadExists,
+          agentAISpan,
         });
       },
     };
@@ -2187,6 +2296,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     const { llm, before, after } = await this.prepareLLMOptions(messages, mergedGenerateOptions);
     const beforeResult = await before();
+    const agentAISpan = beforeResult.agentAISpan;
 
     // Check for tripwire and return early if triggered
     if (beforeResult.tripwire) {
@@ -2220,7 +2330,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         : GenerateObjectResult<OUTPUT>;
     }
 
-    const { experimental_output, output, ...llmOptions } = beforeResult;
+    const { experimental_output, output, aiSpan, ...llmOptions } = beforeResult;
 
     if (!output || experimental_output) {
       const result = await llm.__text({
@@ -2233,6 +2343,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
           ? GenerateTextResult<any, EXPERIMENTAL_OUTPUT>
           : GenerateObjectResult<OUTPUT>,
         outputText: result.text,
+        agentAISpan,
       });
 
       return result as unknown as OUTPUT extends undefined
@@ -2253,6 +2364,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         : GenerateObjectResult<OUTPUT>,
       outputText,
       structuredOutput: true,
+      agentAISpan: llmOptions.agentAISpan,
     });
 
     return result as unknown as OUTPUT extends undefined
@@ -2313,6 +2425,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
 
     const { llm, before, after } = await this.prepareLLMOptions(messages, mergedStreamOptions);
     const beforeResult = await before();
+    const agentAISpan = beforeResult.agentAISpan;
 
     // Check for tripwire and return early if triggered
     if (beforeResult.tripwire) {
@@ -2389,6 +2502,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
             await after({
               result,
               outputText,
+              agentAISpan,
             });
           } catch (e) {
             this.logger.error('Error saving memory on finish', {
@@ -2420,6 +2534,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
             result,
             outputText,
             structuredOutput: true,
+            agentAISpan,
           });
         } catch (e) {
           this.logger.error('Error saving memory on finish', {
@@ -2481,7 +2596,8 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
         };
 
         const { llm, before, after } = await this.prepareLLMOptions(messages, mergedStreamOptions);
-        const { onFinish, runId, output, experimental_output, ...llmOptions } = await before();
+        const beforeResult = await before();
+        const { onFinish, runId, output, experimental_output, agentAISpan, ...llmOptions } = beforeResult;
 
         if (output) {
           const streamResult = llm.__streamObject({
@@ -2494,6 +2610,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                   result,
                   outputText,
                   structuredOutput: true,
+                  agentAISpan,
                 });
               } catch (e) {
                 this.logger.error('Error saving memory on finish', {
@@ -2519,6 +2636,7 @@ Message ${msg.threadId && msg.threadId !== threadObject.id ? 'from previous conv
                 await after({
                   result,
                   outputText,
+                  agentAISpan,
                 });
               } catch (e) {
                 this.logger.error('Error saving memory on finish', {

@@ -6,7 +6,7 @@
 
 import type { MastraAITracing } from './base';
 import { SamplingStrategyType } from './types';
-import type { TracingSelector, AITracingContext } from './types';
+import type { TracingSelector, AITracingSelectorContext } from './types';
 
 // ============================================================================
 // Global AI Tracing Registry
@@ -60,7 +60,7 @@ class AITracingRegistry {
   /**
    * Get the selected tracing instance based on context
    */
-  getSelected(context: AITracingContext): MastraAITracing | undefined {
+  getSelected(context: AITracingSelectorContext): MastraAITracing | undefined {
     // 1. Try selector function if provided
     if (this.selector) {
       const selected = this.selector(context, this.instances);
@@ -144,7 +144,7 @@ export function setAITracingSelector(selector: TracingSelector): void {
 /**
  * Get the selected AI tracing instance based on context
  */
-export function getSelectedAITracing(context: AITracingContext): MastraAITracing | undefined {
+export function getSelectedAITracing(context: AITracingSelectorContext): MastraAITracing | undefined {
   return aiTracingRegistry.getSelected(context);
 }
 

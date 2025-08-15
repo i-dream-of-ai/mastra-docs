@@ -92,6 +92,7 @@ export interface LLMGenerationAttributes extends AIBaseAttributes {
  */
 export interface ToolCallAttributes extends AIBaseAttributes {
   toolId?: string;
+  toolType?: string;
   success?: boolean;
 }
 
@@ -360,7 +361,7 @@ export interface AISpanProcessor {
 /**
  * Context provided to tracing selector functions
  */
-export interface AITracingContext {
+export interface AITracingSelectorContext {
   /** Runtime context */
   runtimeContext?: RuntimeContext;
 }
@@ -370,6 +371,16 @@ export interface AITracingContext {
  * Returns the name of the tracing instance, or undefined to use default
  */
 export type TracingSelector = (
-  context: AITracingContext,
+  context: AITracingSelectorContext,
   availableTracers: ReadonlyMap<string, MastraAITracing>,
 ) => string | undefined;
+
+/**
+ * Context for AI tracing that flows through workflow and agent execution
+ */
+export interface AITracingContext {
+  /** Parent AI span for creating child spans in nested operations */
+  parentAISpan?: AnyAISpan;
+  /** User-defined metadata */
+  metadata?: Record<string, any>;
+}
