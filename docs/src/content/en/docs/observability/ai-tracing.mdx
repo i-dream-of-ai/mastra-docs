@@ -270,7 +270,7 @@ The Langfuse exporter supports two modes:
 **Real-time Mode**
 - Each trace event is immediately flushed
 - Ideal for development and debugging
-- Faster visibility in Langfuse dashboard
+- Immediate visibility in Langfuse dashboard
 
 ```ts
 new LangfuseExporter({
@@ -279,4 +279,60 @@ new LangfuseExporter({
 })
 ```
 
+### Maintaining Trace Continuity in Workflows
 
+When calling agents from within workflow steps, you can maintain trace continuity by passing the `aiTracingContext` that's automatically provided to each step. This ensures that agent operations appear as child spans under the workflow step.
+
+```ts filename="src/mastra/workflows/support-workflow.ts" showLineNumbers copy
+import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { z } from 'zod';
+import type { AITracingContext } from '@mastra/core/ai-tracing';
+
+const processCustomerQuery = createStep({
+  id: 'process-query',
+  description: 'Process customer support query with AI agent',
+  inputSchema: z.object({
+    query: z.string(),
+    customerId: z.string(),
+  }),
+  outputSchema: z.object({
+    response: z.string(),
+    resolved: z.boolean(),
+  }),
+  execute: async ({ inputData, mastra, ...context }) => {
+    // Extract aiTracingContext from the execution context
+    // Note: TypeScript types don't include this yet, so we cast
+    const { aiTracingContext } = context as { aiTracingContext: AITracingContext };
+    
+    const agent = mastra.getAgent('support-agent');
+    
+    // Pass aiTracingContext to maintain span hierarchy
+    const response = await agent.generate(
+      `Help customer ${inputData.customerId}: ${inputData.query}`,
+      {
+        aiTracingContext, // This creates child spans under the step
+        maxSteps: 3,
+      }
+    );
+    
+    return {
+      response: response.text,
+      resolved: response.finishReason === 'stop',
+    };
+  },
+});
+```
+
+This creates a trace hierarchy like:
+
+```
+Workflow Run: support-workflow
+└── Step: process-query
+    └── Agent Run: support-agent
+        ├── LLM Generation: gpt-4-call-1
+        └── Tool Call: knowledge-base-search
+```
+
+Without passing `aiTracingContext`, the agent operations would create separate trace trees instead of appearing as children of the workflow step.
+
+> **⚠️ Known Issue**: The TypeScript types for workflow step execution parameters don't currently include `aiTracingContext`, requiring the type assertion shown above. This will be fixed in the next release. Additionally, we're working on automatically maintaining trace continuity without requiring manual context passing.
