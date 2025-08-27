@@ -1,5 +1,11 @@
 # @mastra/core
 
+## 0.15.3-alpha.0
+
+### Patch Changes
+
+- [#7025](https://github.com/mastra-ai/mastra/pull/7025) [`1ed5a3e`](https://github.com/mastra-ai/mastra/commit/1ed5a3e19330374c4347a4237cd2f4b9ffb60376) Thanks [@YujohnNattrass](https://github.com/YujohnNattrass)! - Support workflows for run experiments
+
 ## 0.15.2
 
 ### Patch Changes

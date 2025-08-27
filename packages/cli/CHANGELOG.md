@@ -1,5 +1,15 @@
 # mastra
 
+## 0.11.3-alpha.0
+
+### Patch Changes
+
+- [#7044](https://github.com/mastra-ai/mastra/pull/7044) [`3308c9f`](https://github.com/mastra-ai/mastra/commit/3308c9ff1da7594925d193a825f33da2880fb9c1) Thanks [@mfrachet](https://github.com/mfrachet)! - fix dev:playground command
+
+- Updated dependencies [[`1ed5a3e`](https://github.com/mastra-ai/mastra/commit/1ed5a3e19330374c4347a4237cd2f4b9ffb60376)]:
+  - @mastra/core@0.15.3-alpha.0
+  - @mastra/deployer@0.15.3-alpha.0
+
 ## 0.11.2
 
 ### Patch Changes
